@@ -16,13 +16,6 @@
   roles:
     - role: k3s
 
-- name: Déployer la passerelle Edge OTel
-  hosts: otel_edge_nodes
-  become: true
-  gather_facts: true
-  roles:
-    - role: otel_edge
-
 - name: Installer et configurer les agents EDOT
   hosts: elastic_agent_nodes
   become: true

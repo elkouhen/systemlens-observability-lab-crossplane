@@ -7,7 +7,9 @@ readonly kibana_user="${KIBANA_USERNAME:-elastic}"
 readonly kibana_resolve="${KIBANA_CURL_RESOLVE:-kibana.observability.test:5601:127.0.0.1}"
 readonly fleet_url="${FLEET_URL:-http://fleet.observability.test:8220}"
 readonly fleet_resolve="${FLEET_CURL_RESOLVE:-fleet.observability.test:8220:127.0.0.1}"
-readonly fleet_vm_nodes="otel-edge-01 elk-01"
+readonly fleet_vm_nodes="k3s-01 elk-01"
+readonly fleet_vm_nodes_json="$(printf '%s\n' ${fleet_vm_nodes} | jq -R . | jq -sc .)"
+readonly fleet_vm_count="$(wc -w <<<"${fleet_vm_nodes}" | tr -d ' ')"
 
 : "${KIBANA_PASSWORD:?Définir KIBANA_PASSWORD avant de provisionner les VM Fleet}"
 
@@ -33,16 +35,16 @@ wait_for_vm_agents() {
       --resolve "${kibana_resolve}" \
       -u "${kibana_user}:${KIBANA_PASSWORD}" \
       "${kibana_url}/api/fleet/agents?perPage=1000")"
-    online="$(jq -r --argjson nodes '["otel-edge-01","elk-01"]' '
+    online="$(jq -r --argjson nodes "${fleet_vm_nodes_json}" '
       [.items[] | select(.local_metadata.host.hostname as $host | ($nodes | index($host)) != null and .status == "online") | .local_metadata.host.hostname]
       | unique | length
     ' <<<"${agents}")"
-    if [[ "${online}" == '2' ]]; then
+    if [[ "${online}" == "${fleet_vm_count}" ]]; then
       return 0
     fi
     sleep 5
   done
-  missing="$(jq -r --argjson nodes '["otel-edge-01","elk-01"]' '
+  missing="$(jq -r --argjson nodes "${fleet_vm_nodes_json}" '
     $nodes[] as $node | select(([.items[] | select(.local_metadata.host.hostname == $node and .status == "online")] | length) == 0) | $node
   ' <<<"${agents}" | paste -sd, -)"
   printf 'Agents OpAMP non online après 150 secondes : %s\n' "${missing:-inconnus}" >&2

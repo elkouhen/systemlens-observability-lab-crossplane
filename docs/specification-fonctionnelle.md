@@ -47,7 +47,7 @@ externe au lab.
 ### 3.1 Collecte des applications
 
 **SF-APP-01.** La plateforme doit recevoir les traces applicatives au format
-OTLP via le Collecteur Edge exposé par le Service `otel-edge-vm`.
+OTLP via le Collecteur Edge exposé par le Service `otel-edge`.
 
 **SF-APP-02.** La plateforme doit collecter les métriques applicatives
 exportées par Micrometer en OTLP vers le Collecteur Edge.

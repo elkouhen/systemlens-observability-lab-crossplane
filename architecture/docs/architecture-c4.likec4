@@ -94,13 +94,8 @@ model {
       data = container 'Bases de données' 'PostgreSQL (CloudNativePG) / MongoDB' 'Données du scénario supermarché'
       otel_kafka = queue 'Kafka OTel' 'Strimzi : topics otel-* protégés par SCRAM et ACL'
       backend_collector = container 'Backend OTel' 'EDOT Collector' 'Consomme les topics otel-* par regex et indexe en OTel natif'
+      edge_collector = container 'Collector Edge' 'EDOT Collector' 'Reçoit OTLP authentifié par Bearer (Service otel-edge, ports d’hôte 4317/4318) et publie dans Kafka OTel'
       k3s_agent = container 'Agent EDOT' 'Elastic Agent standalone' 'Collecte les signaux de la VM'
-    }
-
-    edge = system 'otel-edge-01' {
-      edge_agent = container 'Agent EDOT' 'Elastic Agent standalone' 'Collecte les signaux locaux'
-      edge_collector = container 'Collector Edge' 'EDOT Collector' 'Reçoit OTLP authentifié par Bearer et publie dans Kafka OTel'
-      edge_proxy = container 'Relais OTLP' 'HAProxy' 'Expose uniquement les endpoints OTLP'
     }
   }
 
@@ -124,20 +119,17 @@ model {
   zone1.kubernetes.applications .business zone1.kubernetes.kafka 'Publie et consomme les événements métier'
   zone1.kubernetes.applications .business zone1.kubernetes.data 'Lit et écrit les données'
 
-  zone1.kubernetes.applications .traces zone1.edge.edge_proxy 'Envoie les traces applicatives'
-  zone1.kubernetes.applications .metrics zone1.edge.edge_proxy 'Envoie les métriques applicatives'
-  zone1.kubernetes.applications .logs zone1.edge.edge_proxy 'Envoie les logs applicatifs (agent OTel)'
-  zone1.kubernetes.k8s_collectors .metrics zone1.edge.edge_proxy 'Envoie les métriques Kubernetes et des back-ends'
+  zone1.kubernetes.applications .traces zone1.kubernetes.edge_collector 'Envoie les traces applicatives'
+  zone1.kubernetes.applications .metrics zone1.kubernetes.edge_collector 'Envoie les métriques applicatives'
+  zone1.kubernetes.applications .logs zone1.kubernetes.edge_collector 'Envoie les logs applicatifs (agent OTel)'
+  zone1.kubernetes.k8s_collectors .metrics zone1.kubernetes.edge_collector 'Envoie les métriques Kubernetes et des back-ends'
   zone1.kubernetes.data .storage zone1.kubernetes.k8s_collectors 'Expose ses métriques et ses requêtes'
-  zone1.kubernetes.k3s_agent .metrics zone1.edge.edge_collector 'Envoie les métriques VM'
-  zone3.elk.elk_agent .metrics zone1.edge.edge_collector 'Envoie les métriques VM'
-  zone1.edge.edge_proxy .otlp zone1.edge.edge_collector 'Relaye OTLP'
-  zone1.edge.edge_agent .logs zone1.edge.edge_collector 'Envoie les logs Edge'
-  zone1.edge.edge_agent .metrics zone1.edge.edge_collector 'Envoie les métriques Edge'
+  zone1.kubernetes.k3s_agent .metrics zone1.kubernetes.edge_collector 'Envoie les métriques VM'
+  zone3.elk.elk_agent .metrics zone1.kubernetes.edge_collector 'Envoie les métriques VM'
 
-  zone1.edge.edge_collector .logs zone1.kubernetes.otel_kafka 'Publie otel-logs-<plateforme>-<env> (NodePort, SCRAM)'
-  zone1.edge.edge_collector .metrics zone1.kubernetes.otel_kafka 'Publie otel-metrics-<plateforme>-<env>'
-  zone1.edge.edge_collector .traces zone1.kubernetes.otel_kafka 'Publie otel-traces-<plateforme>-<env>'
+  zone1.kubernetes.edge_collector .logs zone1.kubernetes.otel_kafka 'Publie otel-logs-<plateforme>-<env> (SCRAM)'
+  zone1.kubernetes.edge_collector .metrics zone1.kubernetes.otel_kafka 'Publie otel-metrics-<plateforme>-<env>'
+  zone1.kubernetes.edge_collector .traces zone1.kubernetes.otel_kafka 'Publie otel-traces-<plateforme>-<env>'
   zone1.kubernetes.otel_kafka .logs zone1.kubernetes.backend_collector 'Consomme otel-logs-*'
   zone1.kubernetes.otel_kafka .metrics zone1.kubernetes.backend_collector 'Consomme otel-metrics-*'
   zone1.kubernetes.otel_kafka .traces zone1.kubernetes.backend_collector 'Consomme otel-traces-*'
@@ -149,7 +141,7 @@ model {
   operator .administration zone3.elk.kibana 'Accède directement à Kibana'
   operator .administration zone3.elk.fleet 'Supervise les agents via Fleet'
 
-  zone1.edge.edge_agent .control zone3.elk.fleet 'Supervision OpAMP'
+  zone1.kubernetes.k3s_agent .control zone3.elk.fleet 'Supervision OpAMP'
   zone3.elk.elk_agent .control zone3.elk.fleet 'Supervision OpAMP'
 }
 
@@ -192,9 +184,7 @@ views {
     include zone1.kubernetes.applications
     include zone1.kubernetes.k8s_collectors
     include zone1.kubernetes.k3s_agent
-    include zone1.edge.edge_agent
-    include zone1.edge.edge_proxy
-    include zone1.edge.edge_collector
+    include zone1.kubernetes.edge_collector
     include zone1.kubernetes.otel_kafka
     include zone1.kubernetes.backend_collector
     include zone3.elk.elasticsearch
@@ -213,8 +203,7 @@ views {
     '''
     include zone1.kubernetes.applications
     include zone1.kubernetes.k8s_collectors
-    include zone1.edge.edge_proxy
-    include zone1.edge.edge_collector
+    include zone1.kubernetes.edge_collector
     include zone1.kubernetes.otel_kafka
     include zone1.kubernetes.backend_collector
     include zone3.elk.elasticsearch

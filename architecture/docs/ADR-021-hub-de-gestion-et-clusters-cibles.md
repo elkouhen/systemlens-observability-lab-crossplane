@@ -3,7 +3,7 @@
 ## Statut
 
 Accepted, 2026-11-11 (lot 8 du backlog). Remplace la topologie à cinq VM : les VM
-`supermarket-middleware-01` et `otel-backend-01` sont supprimées. Rend caduques
+`supermarket-middleware-01`, `otel-backend-01` et `otel-edge-01` sont supprimées. Rend caduques
 [ADR-004](ADR-004-metrics-backend-vers-kafka-local.md) et
 [ADR-005](ADR-005-signaux-backend-vers-kafka-local.md) (agent EDOT du backend publiant dans le
 Kafka OTel local) : il n'y a plus de VM backend. Conserve le chemin des signaux (Edge, Kafka OTel,
@@ -26,7 +26,11 @@ pouvait que les configurer. L'objectif du lot 8 est de « faire un maximum avec 
 
 - Un cluster k3s de gestion, `tools-01` (192.168.33.60), porte Argo CD, Crossplane et ses
   providers, cert-manager et la clé age. Deux clusters cibles : `k3s-01` (applicatif) et `elk-01`
-  (observabilité). `otel-edge-01` reste une VM Ansible.
+  (observabilité). Le Collecteur Edge, d'abord resté sur la VM Ansible `otel-edge-01` derrière
+  HAProxy, est un Deployment `otel-edge` de `k3s-01` (item H8) : Service `otel-edge` pour les clients
+  du cluster, ports d'hôte 4317 et 4318 de `192.168.33.50` pour les agents EDOT des VM et le poste
+  (redirection Lima). Son identité de producteur reste `otel-edge-01` (publishers de
+  `platforms.yaml`, compte Kafka `otel_publisher_otel_edge_01`, ACL inchangées).
 - Argo CD enregistre les clusters cibles par des Secrets de cluster créés à l'amorçage
   (`make clusters-register`) ; Crossplane les atteint par provider-kubernetes, une
   `ClusterProviderConfig` par cluster, avec le même kubeconfig. Ces identifiants, régénérés par k3s
@@ -52,11 +56,16 @@ pouvait que les configurer. L'objectif du lot 8 est de « faire un maximum avec 
 ## Conséquences
 
 - Tout ce qui tourne dans un cluster est déclaré dans Git ; Ansible se limite aux hôtes.
-- L'Edge publie dans le Kafka OTel de `k3s-01` par NodePort : `otel_gateway_kafka_broker` vaut
-  `192.168.33.50:31092`, le compte `otel_publisher_otel_backend_01` disparaît.
-- L'opérateur d'utilisateurs de Strimzi supprime les comptes qu'il ne gère pas : il ignore
-  `^otel_` (variable `STRIMZI_IGNORED_USERS_PATTERN`), laissant ces comptes et leurs ACL à
-  provider-kafka. L'administrateur s'appelle `otel-admin` (nom Kubernetes du `KafkaUser`).
+- L'Edge publie dans le Kafka OTel par son listener interne ; le NodePort 31092 ne sert plus que
+  provider-kafka du hub. Le compte `otel_publisher_otel_backend_01` disparaît.
+- La liste des plateformes servies par l'Edge est écrite dans son ConfigMap ; `make
+  otel-config-validate` la compare à `platforms.yaml` (`scripts/edge-platforms-check.rb`).
+- L'opérateur d'utilisateurs de Strimzi ne gère aucune ACL : le Kafka OTel déclare l'autoriseur
+  standard de Kafka en `custom` (`supportsAdminApi: false`). En `simple`, il supprimait toutes les
+  ACL de provider-kafka toutes les 2 minutes, malgré `STRIMZI_IGNORED_USERS_PATTERN`.
+- L'opérateur d'utilisateurs de Strimzi supprime les comptes SCRAM qu'il ne gère pas : il ignore
+  `^otel_` (variable `STRIMZI_IGNORED_USERS_PATTERN`), laissant ces comptes à provider-kafka.
+  L'administrateur s'appelle `otel-admin` (nom Kubernetes du `KafkaUser`).
 - Un cluster k3s supplémentaire coûte de la mémoire (serveur k3s du hub, nombreux CRD) ; les mesures
   du lot 8 sont dans le backlog.
 - Le hub n'a pas d'agent EDOT : il n'est pas supervisé par la chaîne du lab.

@@ -2,8 +2,9 @@ agent:
   grpc:
     port: 6790
 
-{% set is_otel_edge = 'otel_edge_nodes' in group_names %}
-{% set internal_telemetry_port = 4320 if is_otel_edge else 4317 %}
+{# Télémétrie interne de l'agent sur 127.0.0.1:4320 : 4317 et 4318 sont les ports d'hôte du
+   Collecteur Edge sur k3s-01. #}
+{% set internal_telemetry_port = 4320 %}
 {# Chemin de sortie (ADR-015) : l'Edge déclaré par la VM. La supervision de
    PostgreSQL, MongoDB et Kafka est faite dans k3s-01 (collecteur otel-middleware). #}
 {% set agent_exporter = 'otlphttp/edge' %}
@@ -99,13 +100,11 @@ processors:
         action: upsert
 
 exporters:
-  # L'Edge déclaré par la VM (otel_edge), avec la clé OTEL_EDGE_KEY_<HOST>.
+  # Le Collecteur Edge de k3s-01 (ports d'hôte), avec la clé OTEL_EDGE_KEY_<HOST>.
   # L'Edge publie dans le topic de la plateforme déclarée par la ressource.
-  # L'adresse est ansible_host de l'Edge : node_ip est une extra var de scripts/vm,
-  # globale, qui vaudrait l'adresse de la VM provisionnée.
   # Documentation : https://github.com/open-telemetry/opentelemetry-collector/tree/main/exporter/otlphttpexporter
   otlphttp/edge:
-    endpoint: http://{{ hostvars[otel_edge].ansible_host }}:4318
+    endpoint: {{ otel_edge_endpoint }}
     headers:
       Authorization: "Bearer {{ otel_edge_client_key }}"
 

@@ -29,7 +29,7 @@ tools-01 (hub k3s) : Argo CD, Crossplane, cert-manager
 Applications, collecteurs Kubernetes, agents EDOT des VM
                  │ OTLP (clé Bearer)
                  ▼
-       Collecteur Edge sur otel-edge-01 (VM)
+       Collecteur Edge dans k3s-01 (Deployment otel-edge)
                  │ Kafka SCRAM, NodePort 192.168.33.50:31092
                  ▼
        Kafka OTel dans k3s-01
@@ -39,7 +39,7 @@ Applications, collecteurs Kubernetes, agents EDOT des VM
        Elasticsearch sur elk-01 (192.168.33.40:9200) ──▶ Kibana
 ```
 
-`otel-edge-01` fournit le point d’entrée exposé pour OTLP. `tools-01` est le cluster de gestion :
+Le Collecteur Edge de `k3s-01` fournit le point d’entrée OTLP : Service `otel-edge` dans le cluster, ports d’hôte 4317 et 4318 de `192.168.33.50` pour les agents des VM. `tools-01` est le cluster de gestion :
 Argo CD y synchronise `architecture/gitops/` et Crossplane y compose les objets des clusters cibles.
 `k3s-01` héberge les applications, leurs bases (CloudNativePG, MongoDB Controllers for Kubernetes),
 le Kafka métier et le Kafka OTel (Strimzi), le collecteur backend et l’export vers Elastic.
@@ -86,18 +86,17 @@ tire les métriques agrégées de l'UI APM (ADR-018).
 
 | Composant | Responsabilité | Source de configuration |
 | --- | --- | --- |
-| `otel-edge-01` | Recevoir l’OTLP Kubernetes et VM puis publier dans Kafka | `architecture/ansible/roles/otel_edge/` |
+| Collecteur Edge (`otel-edge`, `k3s-01`) | Recevoir l’OTLP Kubernetes et VM puis publier dans Kafka | `architecture/gitops/otel-pipeline/k3s-01/edge-collector.yaml` |
 | EDOT DaemonSet | Collecter les métriques `kubeletstats` du nœud | `architecture/gitops/otel-pipeline/k3s-01/` |
 | `tools-01` | Synchroniser Git (Argo CD) et composer les clusters cibles (Crossplane) | `architecture/gitops/` |
 | Back-ends de `k3s-01` | Fournir Kafka métier, MongoDB et PostgreSQL | `architecture/gitops/supermarket/databases.yaml` |
 | Kafka OTel et collecteur backend (`k3s-01`) | Tamponner puis exporter les signaux vers Elastic | `architecture/gitops/otel-pipeline/` |
 | Collecteur `otel-middleware` (`k3s-01`) | Superviser PostgreSQL, MongoDB et les deux Kafka | `architecture/gitops/otel-pipeline/k3s-01/` |
-| `otel-edge-01` | Exposer les points d’entrée et héberger le Collecteur Edge | `architecture/ansible/` et `architecture/gitops/otel-pipeline/` |
 | `elk-01` | Fournir Elasticsearch, Kibana et Fleet Server (ECK) | `architecture/gitops/elastic/` |
-| Elastic Agent EDOT | Collecter les logs et métriques de `k3s-01`, `elk-01` et `otel-edge-01` et les exporter vers l'Edge déclaré par la VM | `architecture/ansible/roles/elastic_agent/` |
+| Elastic Agent EDOT | Collecter les logs et métriques de `k3s-01` et `elk-01` et les exporter vers l'Edge déclaré par la VM | `architecture/ansible/roles/elastic_agent/` |
 
 Les collecteurs Kubernetes et les applications envoient leurs signaux au
-Collecteur Edge via le Service `otel-edge-vm`. Les agents EDOT standalone des
+Collecteur Edge via le Service `otel-edge`. Les agents EDOT standalone des
 VM utilisent directement l’adresse OTLP de ce même collecteur. Tous les flux
 suivent ensuite Kafka et le backend.
 

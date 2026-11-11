@@ -35,7 +35,7 @@ receiver, par exemple `metrics-kubeletstatsreceiver.otel-k3s_homologation` et
 `metrics-hostmetricsreceiver.otel-<plateforme>_homologation` : le namespace
 sépare `k3s`, `supermarche` et `elk` (ADR-019), comme le champ `platform.id`.
 
-Les VM `k3s-01`, `elk-01` et `otel-edge-01` exécutent Elastic Agent en mode EDOT
+Les VM `k3s-01` et `elk-01` exécutent Elastic Agent en mode EDOT
 standalone. La configuration locale collecte les logs système et les
 métriques hôte, puis exporte en OTLP vers l'Edge déclaré par la VM. PostgreSQL, MongoDB et les
 deux Kafka sont supervisés par le collecteur `otel-middleware` de `k3s-01`

@@ -1,6 +1,6 @@
 ---
 # Rattachement des VM du groupe (ADR-015) : plateforme, environnement et
-# Edge cible. otel_edge désigne un hôte de otel_edge_nodes.
+# Edge cible (identité du Collecteur Edge de k3s-01 dans platforms.yaml).
 otel_platform: elk
 otel_environment: homologation
 otel_edge: otel-edge-01

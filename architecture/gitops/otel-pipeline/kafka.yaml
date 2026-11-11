@@ -1,6 +1,6 @@
 # Kafka OTel dans k3s-01 (Strimzi), déclaré comme instance de l'API KafkaCluster : SCRAM-SHA-512 et
 # ACL (ADR-017), administrateur otel-admin. Le listener externe (NodePort 31092 de k3s-01) sert le
-# Collecteur Edge de otel-edge-01 et provider-kafka ; le collecteur backend lit le listener interne.
+# provider-kafka du hub ; le Collecteur Edge et le collecteur backend lisent le listener interne.
 ---
 apiVersion: data.lab.io/v1alpha1
 kind: KafkaCluster

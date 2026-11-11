@@ -1,6 +1,5 @@
 ---
-# Rend localement les configurations des collecteurs des VM (Edge, agents
-# EDOT) depuis l'inventaire, sans toucher aux VM, pour les valider avec
+# Rend localement les configurations des agents EDOT des VM depuis l'inventaire, sans toucher aux VM, pour les valider avec
 # `elastic-otel-collector validate` (make otel-config-validate, qui valide
 # aussi les collecteurs de k3s-01 rendus par Kustomize). Les secrets absents prennent une valeur
 # factice : seule la structure est validée.
@@ -12,8 +11,6 @@
     otel_render_dir: "{{ lookup('env', 'OTEL_RENDER_DIR') | default('/tmp/otel-render', true) }}"
     otel_kafka_secret: "{{ lookup('env', 'KAFKA_OTEL_PUBLISHER_PASSWORD') | default('render', true) }}"
     otel_edge_client_key: "{{ lookup('env', otel_edge_client_key_env) | default('render', true) }}"
-    otel_edge_key_kubernetes: "{{ lookup('env', 'OTEL_EDGE_KEY_KUBERNETES') | default('render', true) }}"
-    otel_edge_key_kubernetes_cluster: "{{ lookup('env', 'OTEL_EDGE_KEY_KUBERNETES_CLUSTER') | default('render', true) }}"
   tasks:
     - name: Créer le répertoire de rendu
       ansible.builtin.file:
@@ -28,22 +25,6 @@
         dest: "{{ otel_render_dir }}/elastic-agent-{{ inventory_hostname }}.yaml"
         mode: '0600'
       when: inventory_hostname in groups.get('elastic_agent_nodes', [])
-
-    - name: Vérifier les plateformes servies par le Collecteur EDOT Edge
-      ansible.builtin.include_role:
-        name: otel_edge
-        tasks_from: platforms.yml
-      when: inventory_hostname in groups.get('otel_edge_nodes', [])
-
-    - name: Rendre la configuration et les jetons du Collecteur EDOT Edge
-      ansible.builtin.template:
-        src: "roles/otel_edge/templates/{{ item.src }}"
-        dest: "{{ otel_render_dir }}/{{ item.dest }}"
-        mode: '0600'
-      loop:
-        - {src: otel-edge.yaml.j2, dest: "otel-edge-{{ inventory_hostname }}.yaml"}
-        - {src: otel-edge.tokens.j2, dest: "otel-edge-{{ inventory_hostname }}.tokens"}
-      when: inventory_hostname in groups.get('otel_edge_nodes', [])
 
     - name: Vérifier la liste des plateformes et en déduire les topics
       ansible.builtin.include_role:

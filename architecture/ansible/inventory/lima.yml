@@ -1,4 +1,4 @@
-# Inventaire Lima : hôtes, groupes et IP privées des 4 VM du lab.
+# Inventaire Lima : hôtes, groupes et IP privées des 3 VM du lab.
 # ansible_host garde l'IP privée 192.168.33.x (utilisée par les templates) ; la connexion SSH
 # passe par le port local fixe de chaque VM Lima (ssh.localPort dans lima/<vm>.yaml).
 # k3s_nodes : le hub tools-01 et les deux clusters cibles k3s-01 (applicatif) et elk-01
@@ -6,13 +6,6 @@
 ---
 all:
   children:
-    otel_edge_nodes:
-      hosts:
-        otel-edge-01:
-          ansible_host: 192.168.33.30
-          ansible_port: 2253
-          ansible_ssh_private_key_file: ~/.lima/_config/user
-          node_ip: 192.168.33.30
     k3s_nodes:
       children:
         hub_nodes:
@@ -41,4 +34,3 @@ all:
       children:
         apps_nodes:
         elk_nodes:
-        otel_edge_nodes:

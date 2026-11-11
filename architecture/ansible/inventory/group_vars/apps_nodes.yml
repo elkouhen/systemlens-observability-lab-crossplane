@@ -1,10 +1,10 @@
 ---
 # Rattachement des VM du groupe (ADR-015) : plateforme, environnement et
-# Edge cible. otel_edge désigne un hôte de otel_edge_nodes.
+# Edge cible (identité du Collecteur Edge de k3s-01 dans platforms.yaml).
 otel_platform: k3s
 otel_environment: homologation
 otel_edge: otel-edge-01
-# Cluster applicatif : PostgreSQL, MongoDB et les deux Kafka sont exposés au hub et à l'Edge par
-# NodePort (30000-32767) ; ni Traefik ni ServiceLB.
+# Cluster applicatif : PostgreSQL, MongoDB et les deux Kafka sont exposés au hub par NodePort
+# (30000-32767), le Collecteur Edge par ports d'hôte (4317, 4318) ; ni Traefik ni ServiceLB.
 k3s_disable: [traefik, servicelb]
-firewall_tcp_ports: [6443, 10250, "30000-32767"]
+firewall_tcp_ports: [6443, 10250, 4317, 4318, "30000-32767"]

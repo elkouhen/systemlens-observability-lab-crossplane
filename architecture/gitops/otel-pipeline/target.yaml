@@ -1,5 +1,5 @@
 # Secrets des collecteurs de k3s-01 (namespace elastic-stack), valeurs recopiées des Secrets du hub :
-# clés Bearer de l'Edge et comptes de supervision (SOPS, secrets/), clé API Elasticsearch du
+# clés Bearer acceptées par l'Edge et clés des collecteurs, comptes Kafka et de supervision (SOPS, secrets/), clé API Elasticsearch du
 # collecteur backend (produite par Terraform, gitops/elastic/elasticsearch.yaml).
 ---
 apiVersion: kubernetes.m.crossplane.io/v1alpha1
@@ -27,6 +27,7 @@ spec:
   providerConfigRef: {kind: ClusterProviderConfig, name: k3s-01}
   references:
     - patchesFrom: {apiVersion: v1, kind: Secret, namespace: elastic-stack, name: otel-collector-credentials, fieldPath: data.kafka-consumer-password}
+    - patchesFrom: {apiVersion: v1, kind: Secret, namespace: elastic-stack, name: otel-collector-credentials, fieldPath: data.kafka-publisher-password}
     - patchesFrom: {apiVersion: v1, kind: Secret, namespace: elastic-stack, name: otel-collector-credentials, fieldPath: data.postgresql-password}
     - patchesFrom: {apiVersion: v1, kind: Secret, namespace: elastic-stack, name: otel-collector-credentials, fieldPath: data.mongodb-password}
   forProvider:
@@ -49,3 +50,18 @@ spec:
       apiVersion: v1
       kind: Secret
       metadata: {name: otel-elasticsearch-credentials, namespace: elastic-stack}
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: otel-edge-tokens
+  namespace: elastic-stack
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: k3s-01}
+  references:
+    - patchesFrom: {apiVersion: v1, kind: Secret, namespace: elastic-stack, name: otel-edge-tokens, fieldPath: data.edge-tokens}
+  forProvider:
+    manifest:
+      apiVersion: v1
+      kind: Secret
+      metadata: {name: otel-edge-tokens, namespace: elastic-stack}

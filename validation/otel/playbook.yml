@@ -5,12 +5,12 @@
   tags: [host]
   vars:
     otel_service_name: otel-validation
-    # Plateforme de la VM otel-edge-01, servie par l'Edge (ADR-020).
+    # Plateforme elk, servie par l'Edge (ADR-020) : la validation se présente comme la VM elk-01.
     otel_platform: elk
     otel_deployment_environment: homologation
-    # Clé Bearer de la VM otel-edge-01 auprès de son Edge (ADR-015), fournie
-    # hors Git par le fichier d'identifiants du lab.
-    otel_edge_client_key: "{{ lookup('ansible.builtin.env', 'OTEL_EDGE_KEY_OTEL_EDGE_01') }}"
+    # Clé Bearer de la VM elk-01 auprès de l'Edge (ADR-015), fournie hors Git par le fichier
+    # d'identifiants du lab.
+    otel_edge_client_key: "{{ lookup('ansible.builtin.env', 'OTEL_EDGE_KEY_ELK_01') }}"
     kibana_url: http://kibana.observability.test:5601
     elasticsearch_url: http://elasticsearch.observability.test:9200
     elasticsearch_username: elastic
@@ -34,7 +34,7 @@
           - otel_edge_client_key | length > 0
         fail_msg: >-
           Renseigner les URL dans le playbook et exporter ELASTICSEARCH_PASSWORD
-          et OTEL_EDGE_KEY_OTEL_EDGE_01 avant d'exécuter ce playbook.
+          et OTEL_EDGE_KEY_ELK_01 avant d'exécuter ce playbook.
       no_log: true
 
     - name: Vérifier que Kibana est joignable

@@ -1,15 +1,15 @@
 # Provisionnement Ansible des VM
 
-Les playbooks de ce répertoire installent les hôtes du lab. L'architecture compte quatre VM :
+Les playbooks de ce répertoire installent les hôtes du lab. L'architecture compte trois VM :
 `tools-01`, cluster k3s de gestion (hub : Argo CD, Crossplane, cert-manager), `k3s-01`, cluster k3s
-applicatif (services Java, PostgreSQL, MongoDB, Kafka métier et OTel, collecteurs OTel), `elk-01`,
-cluster k3s d'observabilité (Elasticsearch, Kibana et Fleet Server sous ECK), et `otel-edge-01`
-pour HAProxy et le Collecteur Edge (EDOT Collector). Ansible n'installe que les hôtes : système,
-k3s, Edge et agents EDOT ; tout ce qui tourne dans les clusters est déployé depuis le hub par Argo
+applicatif (services Java, PostgreSQL, MongoDB, Kafka métier et OTel, Collecteur Edge et
+collecteurs OTel), et `elk-01`, cluster k3s d'observabilité (Elasticsearch, Kibana et Fleet Server
+sous ECK). Ansible n'installe que les hôtes : système, k3s et agents EDOT ; tout ce qui tourne dans les clusters est déployé depuis le hub par Argo
 CD et Crossplane ([`../gitops`](../gitops/README.md)).
 
-`k3s-01`, `elk-01` et `otel-edge-01` reçoivent un Elastic Agent en mode EDOT standalone. Il
-collecte les logs et métriques locaux et les envoie en OTLP au Collecteur Edge. Le hub n'en a pas.
+`k3s-01` et `elk-01` reçoivent un Elastic Agent en mode EDOT standalone. Il collecte les logs et
+métriques locaux et les envoie en OTLP au Collecteur Edge de `k3s-01` (ports d'hôte,
+`otel_edge_endpoint` = `http://192.168.33.50:4318`). Le hub n'en a pas.
 La supervision de PostgreSQL, MongoDB et des deux Kafka, autrefois portée par les agents EDOT de
 `supermarket-middleware-01` et `otel-backend-01` (VM supprimées), est faite dans `k3s-01` par le
 collecteur `otel-middleware` (`gitops/otel-pipeline/k3s-01/middleware-collector.yaml`), avec les
@@ -37,8 +37,8 @@ Elasticsearch est indisponible, la file se remplit puis le lag du groupe
 `otel-backend` augmente : Kafka sert de tampon (ADR-013).
 
 En amont, l'exporteur Kafka de l'Edge a lui aussi une file persistante
-(`sending_queue` sur `file_storage`, `/var/lib/observability/otel-edge` sur
-`otel-edge-01`, propriété UID 1000) : un lot accepté survit à un redémarrage
+(`sending_queue` sur `file_storage`, volume `otel-edge-queue` du Deployment `otel-edge` de
+`k3s-01`) : un lot accepté survit à un redémarrage
 de l'Edge et à une panne de Kafka. Les réessais durent au plus 30 min ; au-delà
 le lot est abandonné et compté dans `otelcol_exporter_send_failed_*`, pour
 qu'un refus durable (ACL, ADR-017) ne bloque pas les autres plateformes. Seul
@@ -62,10 +62,10 @@ variables (`~`) et, sans source sélectionnée, ne saute jamais l’horloge
 sélectionnée ; sinon, il exécute `chronyc reset sources` puis `chronyc burst`,
 et `makestep` recale l’horloge en une à deux minutes. Les tâches chrony sont
 dans `roles/common/tasks/chrony.yml` ; `make time-sync-apply` les applique
-seules aux quatre VM, sans redéployer le reste. Cette
+seules aux trois VM, sans redéployer le reste. Cette
 synchronisation continue est nécessaire aux fenêtres temporelles des dashboards
 et au chemin OTLP → Kafka → Elasticsearch. `rtcsync` maintient également
-l’horloge matérielle alignée sur l’horloge système. Vérifier les quatre VM avec
+l’horloge matérielle alignée sur l’horloge système. Vérifier les trois VM avec
 `make time-sync-verify` ; la commande attend une source NTP sélectionnée et un
 état `Leap status : Normal` sur chaque nœud.
 
@@ -107,25 +107,25 @@ Chaque VM Lima expose SSH sur un port local fixe (`2253` à `2256`)
 (`ssh.localPort` dans `lima/<vm>.yaml`), repris par `ansible_port` dans
 `inventory/lima.yml`. Pour changer de plage, modifier les deux fichiers.
 
-La cible `make vms-up` démarre les quatre VM en parallèle, puis exécute un seul playbook Ansible
-sur les quatre hôtes : rôles `common` et `retention` partout, `k3s` sur les trois clusters
-(`k3s_nodes` : `hub_nodes`, `apps_nodes`, `elk_nodes`), `otel_edge` sur l'Edge et `elastic_agent`
-sur `elastic_agent_nodes`. Les variables sensibles viennent de l'environnement.
+La cible `make vms-up` démarre les trois VM en parallèle, puis exécute un seul playbook Ansible
+sur les trois hôtes : rôles `common` et `retention` partout, `k3s` sur les trois clusters
+(`k3s_nodes` : `hub_nodes`, `apps_nodes`, `elk_nodes`) et `elastic_agent` sur
+`elastic_agent_nodes`. Les variables sensibles viennent de l'environnement.
 
 Le Kafka OTel (Strimzi, `k3s-01`) protège les échanges de logs, métriques et traces avec
-SCRAM-SHA-512 et des ACL. L'Edge publie avec son compte `otel_publisher_otel_edge_01`, dont le mot
-de passe est dérivé du secret racine `KAFKA_OTEL_PUBLISHER_PASSWORD`, sur le listener externe
-`192.168.33.50:31092` (`otel_gateway_kafka_broker`) ; le compte `otel_consumer` sert au collecteur
+SCRAM-SHA-512 et des ACL. L'Edge (identité `otel-edge-01` dans le registre) publie avec son
+compte `otel_publisher_otel_edge_01`, dont le mot de passe est dérivé du secret racine
+`KAFKA_OTEL_PUBLISHER_PASSWORD`, sur le listener interne ; le listener externe
+`192.168.33.50:31092` sert provider-kafka du hub ; le compte `otel_consumer` sert au collecteur
 backend et à la collecte des métriques Kafka. Les comptes, les topics et les ACL sont déclarés dans
 `gitops/otel-pipeline` et créés par Crossplane (voir « Isolation des plateformes dans Kafka »).
 
-La cible `make vms-restart` redémarre séquentiellement les quatre VM (`tools-01`, `k3s-01`,
-`elk-01`, `otel-edge-01`) sans reprovisionnement. Une VM arrêtée est démarrée avec
+La cible `make vms-restart` redémarre séquentiellement les trois VM (`tools-01`, `k3s-01`,
+`elk-01`) sans reprovisionnement. Une VM arrêtée est démarrée avec
 `--no-provision`. Le script affiche l’état Lima final pour vérifier que chaque VM est `Running`.
 
 La cible `make metrics-chain-restart` redémarre uniquement la chaîne de transport des métriques,
-sans reprovisionnement : Kafka OTel et collecteur backend de `k3s-01`, collecteur Edge, puis
-HAProxy OTLP. Elle attend que le Kafka et les collecteurs soient prêts.
+sans reprovisionnement : Kafka OTel, collecteur backend et Collecteur Edge de `k3s-01`. Elle attend que le Kafka et les collecteurs soient prêts.
 
 Les agents EDOT qui envoient leurs signaux vers Edge utilisent une clé Bearer
 distincte par VM, `OTEL_EDGE_KEY_<HOST>`, et les collecteurs Kubernetes leurs
@@ -157,7 +157,7 @@ fichier existant est complété des clés manquantes à chaque chargement. Pour
 remplacer tous les identifiants, utiliser
 `OBSERVABILITY_CREDENTIALS_ROTATE=1 source ./platform/elk/scripts/generate-otel-edge-keys.sh`.
 
-Pour supprimer les quatre VM et leurs disques locaux, exécuter la cible
+Pour supprimer les trois VM et leurs disques locaux, exécuter la cible
 destructive `make vms-destroy`. Cette opération ne supprime pas le cache local des téléchargements.
 
 Après `make deploy`, la phase `deploy-post` active le monitoring OpAMP des agents VM et sauvegarde
@@ -167,9 +167,8 @@ les images des clusters k3s dans le cache local. Elle peut être rejouée seule 
 | VM | Contenu | Rôle dans la chaîne |
 | --- | --- | --- |
 | `tools-01` | k3s : Argo CD, Crossplane, cert-manager | Pilotage des clusters cibles et des back-ends |
-| `k3s-01` | k3s : services Java, PostgreSQL, MongoDB, Kafka métier et OTel, collecteurs | Applications, buffer Kafka OTel, collecteur backend → Elasticsearch |
+| `k3s-01` | k3s : services Java, PostgreSQL, MongoDB, Kafka métier et OTel, Collecteur Edge, collecteurs | Applications, entrée OTLP (Edge) → Kafka OTel → collecteur backend → Elasticsearch |
 | `elk-01` | k3s + ECK : Elasticsearch, Kibana, Fleet Server | Stockage, consultation et enrôlement |
-| `otel-edge-01` | Collecteur Edge (EDOT) ; HAProxy | OTLP Kubernetes et VM → Kafka OTel |
 
 ## Routage par plateforme
 
@@ -188,12 +187,13 @@ aussi le champ `platform.id`.
 | `k3s` | Collecteurs `otel-kubernetes*` (namespace `elastic-stack`), VM `k3s-01` | Edge `otel-edge-01` |
 | `supermarche` | Namespace `h0tl-supermarche-app`, supervision de PostgreSQL, MongoDB et du Kafka métier (`otel-middleware`) | Edge `otel-edge-01` |
 | `demo` | Namespace `h0tl-demo-app`, API `demo-api` (`apps/demo-api`) | Edge `otel-edge-01` |
-| `elk` | VM `elk-01` et `otel-edge-01`, collecteurs Edge et backend, supervision du Kafka OTel (`otel-middleware`) | Edge ; la télémétrie interne du collecteur backend va directement dans Elasticsearch |
+| `elk` | VM `elk-01`, collecteurs Edge et backend, supervision du Kafka OTel (`otel-middleware`) | Edge ; la télémétrie interne du collecteur backend va directement dans Elasticsearch |
 
 ### Déclaration par VM
 
 Chaque VM déclare dans ses `group_vars` sa plateforme, son environnement et
-l'Edge auquel elle envoie :
+l'Edge auquel elle envoie (son identité dans `publishers`, liste `otel_edges` de
+`group_vars/all.yml` ; l'adresse est `otel_edge_endpoint`) :
 
 ```yaml
 otel_platform: k3s
@@ -291,8 +291,9 @@ suit le même processor.
 3. `make otel-config-validate` rend et valide les configurations, et refuse
    une VM dont la plateforme est absente du registre ou de ses `publishers`.
 4. `make crossplane-platforms-apply` fait créer les topics et les ACL par Crossplane,
-   puis `make otel-edge-vm-provision` applique la liste des plateformes
-   servies et le provisionnement des agents leur déclaration.
+   puis la liste des plateformes servies est ajoutée au ConfigMap `otel-edge-config`
+   (`gitops/otel-pipeline/k3s-01/edge-collector.yaml`, vérifié par `make otel-config-validate`)
+   et le provisionnement des agents applique leur déclaration.
 5. `make otel-kafka-acl-verify` contrôle l'isolation.
 
 ### Isolation des plateformes dans Kafka
@@ -354,8 +355,7 @@ Le playbook `site.yml` applique les rôles dans cet ordre :
 2. `k3s` sur `k3s_nodes` : serveur k3s mono-nœud de `tools-01`, `k3s-01` et `elk-01`
    (`node-ip` = IP privée du lab, `tls-san`, composants désactivés par `k3s_disable` :
    Traefik et ServiceLB dans `k3s-01`, Traefik dans `elk-01`) ;
-3. `otel_edge` sur `otel_edge_nodes` : collecteur Edge et HAProxy ;
-4. `elastic_agent` sur `elastic_agent_nodes` : téléchargement et configuration EDOT.
+3. `elastic_agent` sur `elastic_agent_nodes` : téléchargement et configuration EDOT.
 
 Le rôle `otel_registry` ne provisionne rien : il valide le registre des plateformes et en déduit
 les topics et les comptes des producteurs (`render-otel-configs.yml`, `otel-kafka-acl-verify.yml`).
@@ -380,8 +380,8 @@ par exemple `-e elastic_agent_download_retries=8 elastic_agent_download_delay=30
 Exécuter les playbooks depuis `architecture/`, avec l'inventaire `ansible/inventory/lima.yml`.
 
 ```bash
-make vms-up        # crée et provisionne les quatre VM
-make vm-status     # état Lima, nœuds k3s, services de l'Edge
+make vms-up        # crée et provisionne les trois VM
+make vm-status     # état Lima, nœuds k3s
 make kubeconfigs   # .kube/tools.config, .kube/k3s.config, .kube/elk.config
 make deploy        # hub, clusters cibles, Elastic, applications
 ```

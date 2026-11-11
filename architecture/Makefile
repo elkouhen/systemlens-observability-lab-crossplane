@@ -12,7 +12,7 @@ K3D_CLUSTER ?= elastic
 HUB_VM_NAME ?= tools-01
 K3S_VM_NAME ?= k3s-01
 ELK_VM_NAME ?= elk-01
-LAB_VMS := $(HUB_VM_NAME) $(K3S_VM_NAME) $(ELK_VM_NAME) otel-edge-01
+LAB_VMS := $(HUB_VM_NAME) $(K3S_VM_NAME) $(ELK_VM_NAME)
 K3S_CLUSTER_VMS := $(HUB_VM_NAME) $(K3S_VM_NAME) $(ELK_VM_NAME)
 HUB_KUBECONFIG ?= $(ARCH_ROOT)/.kube/tools.config
 K3S_KUBECONFIG ?= $(ARCH_ROOT)/.kube/k3s.config
@@ -67,7 +67,7 @@ C4_PAGES_BASE ?= ./
 OBSERVABILITY_CREDENTIALS_FILE ?= $(ARCH_ROOT)/.observability-credentials.env
 # Clés Bearer des clients du collecteur Edge (ADR-015) : une par VM dont l'agent EDOT
 # publie vers l'Edge (OTEL_EDGE_KEY_<HOST>) et une par collecteur Kubernetes.
-OTEL_EDGE_KEYS := OTEL_EDGE_KEY_K3S_01 OTEL_EDGE_KEY_ELK_01 OTEL_EDGE_KEY_OTEL_EDGE_01 \
+OTEL_EDGE_KEYS := OTEL_EDGE_KEY_K3S_01 OTEL_EDGE_KEY_ELK_01 \
 	OTEL_EDGE_KEY_KUBERNETES OTEL_EDGE_KEY_KUBERNETES_CLUSTER
 
 # Interface opérateur principale. Les cibles techniques non listées restent
@@ -93,7 +93,7 @@ HELP_TARGETS := help architecture-status credentials-show credentials-generate c
 	observability-policies-validate observability-policies-deploy time-sync-verify \
 	mongodb-workload otel-gateway-vm-status otel-backend-status collectors-restart \
 	otel-validation kubernetes-observability-deploy metrics-chain-restart \
-	otel-edge-vm-provision elastic-agent-vm-provision \
+	elastic-agent-vm-provision \
 	vms-up vms-restart vms-destroy deploy deploy-post elasticsearch-ready kibana-ready apm-kibana-role-apply \
 	dashboards-verify otel-flow-dashboard-deploy kubernetes-otel-dashboards-verify trace-context-verify observability-schema-verify apm-report-api-key-create \
 	elastic-password-show kibana-password-show elasticsearch-api-key-create \
@@ -146,7 +146,6 @@ kubernetes-status: ## Afficher l’état Elastic et applications (hub et cluster
 vm-status: ## Vérifier l'état des VM Lima et de leurs clusters k3s
 	@$(VM) status $(LAB_VMS)
 	@for node in $(K3S_CLUSTER_VMS); do $(VM) shell "$$node" 'sudo k3s kubectl get nodes --no-headers'; done
-	@$(VM) shell otel-edge-01 'sudo systemctl is-active haproxy observability-otel-edge elastic-agent'
 
 vm-services-status: ## Afficher l'état des services de chaque VM et des workloads Kubernetes
 	@./scripts/vm-services-status.sh
@@ -154,10 +153,10 @@ vm-services-status: ## Afficher l'état des services de chaque VM et des workloa
 vm-services-restart: ## Redémarrer les services des VM puis les workloads Kubernetes
 	@./scripts/vm-services-restart.sh
 
-time-sync-apply: ## Appliquer la configuration chrony et le timer de reprise après suspension sur les quatre VM
+time-sync-apply: ## Appliquer la configuration chrony et le timer de reprise après suspension sur les trois VM
 	@ANSIBLE_LOCAL_TEMP=/tmp ansible-playbook -i $(ARCH_ROOT)/ansible/inventory/lima.yml $(ARCH_ROOT)/ansible/time-sync.yml
 
-time-sync-verify: ## Vérifier la synchronisation chrony des quatre VM
+time-sync-verify: ## Vérifier la synchronisation chrony des trois VM
 	@set -euo pipefail; for node in $(LAB_VMS); do \
 		echo "--- $$node ---"; \
 		output="$$($(VM) shell "$$node" 'sudo chronyc tracking; sudo chronyc sources -n' 2>/dev/null)"; \
@@ -166,7 +165,7 @@ time-sync-verify: ## Vérifier la synchronisation chrony des quatre VM
 		echo "$$output" | grep -Eq '^Leap status[[:space:]]*:[[:space:]]*Normal' || { echo "Horloge non synchronisée sur $$node" >&2; exit 1; }; \
 		echo "$$output" | grep -Eq '^\^([*+])' || { echo "Aucune source NTP sélectionnée sur $$node" >&2; exit 1; }; \
 	done
-	@echo 'Les quatre VM sont synchronisées par chrony.'
+	@echo 'Les trois VM sont synchronisées par chrony.'
 
 ##@ Construction et préparation locale
 
@@ -239,7 +238,7 @@ command-center-build: ## Construire l'interface Vue.js de commandes
 	@npm --prefix apps/command-center run build
 
 elastic-version-validate: ## Vérifier l'alignement des versions Elastic déclarées
-	@set -euo pipefail; expected='$(ELASTIC_STACK_VERSION)'; files='Makefile ansible/site.yml ansible/fleet-agent.yml ansible/roles/otel_edge/templates ansible/roles/elastic_agent/templates gitops gitops/elastic/assets/dashboards'; versions="$$(find $$files -type f \( -name '*.j2' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' -o -name 'Makefile' \) -exec grep -Eho '9\.[0-9]+\.[0-9]+' {} + || true)"; versions="$$(printf '%s\n' "$$versions" | sed -E 's/.*(9\.[0-9]+\.[0-9]+).*/\1/' | sort -u)"; \
+	@set -euo pipefail; expected='$(ELASTIC_STACK_VERSION)'; files='Makefile ansible/site.yml ansible/fleet-agent.yml ansible/roles/elastic_agent/templates gitops gitops/elastic/assets/dashboards'; versions="$$(find $$files -type f \( -name '*.j2' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' -o -name 'Makefile' \) -exec grep -Eho '9\.[0-9]+\.[0-9]+' {} + || true)"; versions="$$(printf '%s\n' "$$versions" | sed -E 's/.*(9\.[0-9]+\.[0-9]+).*/\1/' | sort -u)"; \
 	test "$$versions" = "$$expected" || { echo "Versions Elastic incohérentes (attendu $$expected) : $$versions" >&2; exit 1; }; \
 	echo "Versions Elastic alignées sur $$expected"
 
@@ -301,10 +300,12 @@ kibana-wait: kibana-ready ## Attendre que Kibana soit prêt avant l'import de se
 kibana-fleet-config-deploy: elasticsearch-wait kibana-wait fleet-registry-wait ## Amorcer puis appliquer la configuration Kibana/Fleet déclarative
 	@if test '$(SKIP_KUBERNETES_APPLY)' != 1; then $(MAKE) crossplane-kubernetes-apply crossplane-kubernetes-wait; fi
 	@$(MAKE) kibana-ready
+	@# La policy eck-fleet-server (Terraform, gitops/elastic/fleet.yaml) doit exister avant la clé
+	@# d'enrôlement créée par bootstrap-fleet-policies.sh.
+	@$(MAKE) crossplane-fleet-wait
 	@set -euo pipefail; kibana_password="$${KIBANA_PASSWORD:-$${ELASTICSEARCH_PASSWORD:-$$( $(KUBECTL) -n $(K8S_NAMESPACE) get secret elasticsearch-es-elastic-user -o jsonpath='{.data.elastic}' 2>/dev/null | base64 --decode )}}"; \
 	 test -n "$$kibana_password" || { echo 'Identifiant Kibana absent' >&2; exit 1; }; \
 		 KIBANA_URL='$(KIBANA_URL)' KIBANA_CURL_RESOLVE='$(KIBANA_CURL_RESOLVE)' KIBANA_PASSWORD="$$kibana_password" KIBANA_VERSION='$(ELASTIC_STACK_VERSION)' KUBERNETES_OTEL_PACKAGE_VERSION='$(KUBERNETES_OTEL_PACKAGE_VERSION)' KAFKA_OTEL_PACKAGE_VERSION='$(KAFKA_OTEL_PACKAGE_VERSION)' POSTGRESQL_OTEL_PACKAGE_VERSION='$(POSTGRESQL_OTEL_PACKAGE_VERSION)' MONGODB_OTEL_PACKAGE_VERSION='$(MONGODB_OTEL_PACKAGE_VERSION)' SYSTEM_OTEL_PACKAGE_VERSION='$(SYSTEM_OTEL_PACKAGE_VERSION)' OTEL_COLLECTOR_INTERNAL_TELEMETRY_PACKAGE_VERSION='$(OTEL_COLLECTOR_INTERNAL_TELEMETRY_PACKAGE_VERSION)' ./$(ARCH_ROOT)/platform/elk/scripts/bootstrap-fleet-policies.sh
-	@$(MAKE) crossplane-fleet-wait
 	@$(MAKE) fleet-server-wait
 	@$(MAKE) fleet-prerequisites
 
@@ -355,7 +356,6 @@ elk-deploy: ## Amorcer le hub, puis attendre les clusters cibles et configurer E
 	@$(MAKE) crossplane-postgresql-wait crossplane-mongodb-wait
 	@$(MAKE) otel-elasticsearch-credentials-apply
 	@echo "Plateforme Elastic et back-ends prêts ; Edge et collecteurs OTel"
-	@$(MAKE) otel-edge-vm-provision
 	@$(MAKE) crossplane-kubernetes-wait
 	@$(MAKE) crossplane-kafka-wait
 	@$(MAKE) collectors-restart
@@ -453,9 +453,9 @@ vms-up:
 	DEPLOYMENT_PROFILE='$(DEPLOYMENT_PROFILE)' $(VM) up --parallel $(LAB_VMS) --no-provision; \
 	DEPLOYMENT_PROFILE='$(DEPLOYMENT_PROFILE)' KAFKA_OTEL_PUBLISHER_PASSWORD="$$kafka_otel_publisher_password" ZSCALER_CA_CERT_CONTENT="$$zscaler_ca_cert_content" ANSIBLE_LOCAL_TEMP=/tmp ansible-playbook -i $(ARCH_ROOT)/ansible/inventory/lima.yml $(ARCH_ROOT)/ansible/site.yml
 
-vms-start: vms-up ## Démarrer et provisionner les quatre VM (hub, clusters k3s, Edge), sans rien déployer dans les clusters
+vms-start: vms-up ## Démarrer et provisionner les trois VM (hub et clusters k3s), sans rien déployer dans les clusters
 
-vms-restart: ## Redémarrer les quatre VM sans reprovisionnement Ansible
+vms-restart: ## Redémarrer les trois VM sans reprovisionnement Ansible
 	@./scripts/vms-restart.sh
 
 metrics-chain-restart: ## Redémarrer les gateways et le Kafka de la chaîne métriques
@@ -471,12 +471,12 @@ kubeconfigs: ## Exporter les kubeconfig des trois clusters (hub, k3s-01, elk-01)
 
 k3s-kubeconfig: kubeconfigs
 
-vms-destroy: ## Détruire les quatre VM Lima et leurs disques locaux (DESTRUCTIF)
+vms-destroy: ## Détruire les trois VM Lima et leurs disques locaux (DESTRUCTIF)
 	@$(VM) delete $(LAB_VMS)
 
 # VM dont l'agent EDOT est provisionné ; restreindre avec
 # make elastic-agent-vm-provision ELASTIC_AGENT_VMS="elk-01".
-ELASTIC_AGENT_VMS ?= $(K3S_VM_NAME) $(ELK_VM_NAME) otel-edge-01
+ELASTIC_AGENT_VMS ?= $(K3S_VM_NAME) $(ELK_VM_NAME)
 
 elastic-agent-vm-provision: ## Déployer la configuration EDOT standalone des agents VM (ELASTIC_AGENT_VMS)
 	@set -euo pipefail; \
@@ -532,19 +532,22 @@ ansible-validate: ## Vérifier la syntaxe du playbook Ansible sans provisionner
 OTEL_RENDER_DIR ?= $(ARCH_ROOT)/.otel-render
 OTEL_COLLECTOR_IMAGE ?= docker.elastic.co/elastic-agent/elastic-otel-collector:$(ELASTIC_STACK_VERSION)
 
-otel-config-validate: ## Rendre les configurations Edge et agents (inventaire) et celles des collecteurs de k3s-01, et les valider avec EDOT
+otel-config-validate: ## Rendre les configurations des agents (inventaire) et des collecteurs de k3s-01 (Edge compris), et les valider avec EDOT
 	@set -euo pipefail; \
 	rm -rf '$(OTEL_RENDER_DIR)'; \
 	OTEL_RENDER_DIR='$(abspath $(OTEL_RENDER_DIR))' ANSIBLE_LOCAL_TEMP=/tmp ansible-playbook -i ansible/inventory/lima.yml $(ARCH_ROOT)/ansible/render-otel-configs.yml >/dev/null; \
 	for file in '$(OTEL_RENDER_DIR)'/elastic-agent-*.yaml; do sed '1,/^$$/d' "$$file" > "$${file%.yaml}.collector.yaml"; done; \
-	for configmap in otel-backend-config:backend.yaml otel-middleware-config:middleware.yaml otel-kafka-config:daemonset.yaml otel-kafka-config:cluster.yaml; do \
+	$(KUBECTL) kustomize $(GITOPS_ROOT)/otel-pipeline/$(K3S_VM_NAME) | ruby $(ARCH_ROOT)/scripts/edge-platforms-check.rb $(GITOPS_ROOT)/otel-pipeline/platforms.yaml; \
+	for configmap in otel-edge-config:edge.yaml otel-backend-config:backend.yaml otel-middleware-config:middleware.yaml otel-kafka-config:daemonset.yaml otel-kafka-config:cluster.yaml; do \
 	  $(KUBECTL) kustomize $(GITOPS_ROOT)/otel-pipeline/$(K3S_VM_NAME) | ruby -ryaml $(ARCH_ROOT)/scripts/configmap-key.rb "$${configmap%%:*}" "$${configmap#*:}" \
 	    > '$(OTEL_RENDER_DIR)'/k3s-$${configmap%%:*}-$${configmap#*:}; done; \
-	mkdir -p '$(OTEL_RENDER_DIR)/serviceaccount'; echo render > '$(OTEL_RENDER_DIR)/serviceaccount/token'; cp /etc/ssl/cert.pem '$(OTEL_RENDER_DIR)/serviceaccount/ca.crt'; \
-	for file in '$(OTEL_RENDER_DIR)'/otel-edge-*.yaml '$(OTEL_RENDER_DIR)'/k3s-*.yaml '$(OTEL_RENDER_DIR)'/elastic-agent-*.collector.yaml; do \
+	mkdir -p '$(OTEL_RENDER_DIR)/serviceaccount' '$(OTEL_RENDER_DIR)/edge-tokens'; echo render > '$(OTEL_RENDER_DIR)/serviceaccount/token'; cp /etc/ssl/cert.pem '$(OTEL_RENDER_DIR)/serviceaccount/ca.crt'; \
+	echo render > '$(OTEL_RENDER_DIR)/edge-tokens/edge-tokens'; \
+	for file in '$(OTEL_RENDER_DIR)'/k3s-*.yaml '$(OTEL_RENDER_DIR)'/elastic-agent-*.collector.yaml; do \
 	  docker run --rm --tmpfs /var/lib/otel-edge --tmpfs /var/lib/otel \
 	    -e KUBERNETES_SERVICE_HOST=127.0.0.1 -e KUBERNETES_SERVICE_PORT=443 \
 	    -v "$(abspath $(OTEL_RENDER_DIR))/serviceaccount:/var/run/secrets/kubernetes.io/serviceaccount:ro" \
+	    -v "$(abspath $(OTEL_RENDER_DIR))/edge-tokens:/etc/otel-edge-tokens:ro" \
 	    -e OTEL_KAFKA_PUBLISHER_USERNAME=render -e OTEL_KAFKA_PUBLISHER_PASSWORD=render \
 	    -e OTEL_KAFKA_CONSUMER_USERNAME=render -e OTEL_KAFKA_CONSUMER_PASSWORD=render \
 	    -e ELASTICSEARCH_API_KEY=render -e OTEL_EDGE_API_KEY=render -e K8S_NODE_NAME=render -e K8S_NODE_IP=127.0.0.1 -e K8S_POD_NAME=render \
@@ -562,10 +565,10 @@ otel-validation:
 	validation_tags="$${VALIDATION_TAGS:-}"; \
 	case "$$inventory" in /*|../*) ;; *) inventory="../$$inventory";; esac; \
 	if [ -z "$${INVENTORY:-}" ]; then \
-	  ssh_port="$$( $(VM) ssh-config otel-edge-01 | awk '$$1 == "Port" {print $$2; exit}' )"; \
-	  ssh_key="$$( $(VM) ssh-config otel-edge-01 | awk '$$1 == "IdentityFile" {print $$2; exit}' )"; \
-	  test -n "$$ssh_port" || { echo 'Port SSH Lima introuvable pour otel-edge-01.' >&2; exit 1; }; \
-	  test -f "$$ssh_key" || { echo 'Clé SSH Lima introuvable pour otel-edge-01.' >&2; exit 1; }; \
+	  ssh_port="$$( $(VM) ssh-config $(K3S_VM_NAME) | awk '$$1 == "Port" {print $$2; exit}' )"; \
+	  ssh_key="$$( $(VM) ssh-config $(K3S_VM_NAME) | awk '$$1 == "IdentityFile" {print $$2; exit}' )"; \
+	  test -n "$$ssh_port" || { echo 'Port SSH Lima introuvable pour $(K3S_VM_NAME).' >&2; exit 1; }; \
+	  test -f "$$ssh_key" || { echo 'Clé SSH Lima introuvable pour $(K3S_VM_NAME).' >&2; exit 1; }; \
 	  inventory_tmp="$$(mktemp /tmp/otel-validation-inventory.XXXXXX.yml)"; \
 	  trap 'rm -f "$$inventory_tmp"' EXIT; \
 	  sed -e "s/ansible_port: 22/ansible_port: $$ssh_port/" -e "s#ansible_ssh_private_key_file:.*#ansible_ssh_private_key_file: $$ssh_key#" "$$inventory" > "$$inventory_tmp"; \
@@ -597,16 +600,10 @@ fleet-opamp-enable: fleet-assets-deploy ## Activer le monitoring Fleet OpAMP des
 	KIBANA_URL='$(KIBANA_URL)' KIBANA_CURL_RESOLVE='$(KIBANA_CURL_RESOLVE)' KIBANA_PASSWORD="$$kibana_password" \
 		./$(ARCH_ROOT)/platform/elk/scripts/provision-fleet-vms.sh
 
-otel-edge-vm-provision: ## Provisionner le Collecteur EDOT Edge sur otel-edge-01
-	@set -euo pipefail; \
-	test -r '$(OBSERVABILITY_CREDENTIALS_FILE)' || { echo "Fichier d’identifiants introuvable : $(OBSERVABILITY_CREDENTIALS_FILE). Exécuter source ./platform/elk/scripts/generate-otel-edge-keys.sh." >&2; exit 1; }; \
-	source '$(OBSERVABILITY_CREDENTIALS_FILE)'; \
-	for key in $(OTEL_EDGE_KEYS); do test -n "$${!key:-}" || { echo "Clé Edge absente : $$key." >&2; exit 1; }; done; \
-	$(VM) up otel-edge-01 --no-provision; \
-	DEPLOYMENT_PROFILE='$(DEPLOYMENT_PROFILE)' POSTGRESQL_PASSWORD="$${POSTGRESQL_PASSWORD:?Set POSTGRESQL_PASSWORD outside Git}" KAFKA_OTEL_PUBLISHER_PASSWORD="$${KAFKA_OTEL_PUBLISHER_PASSWORD:?Set KAFKA_OTEL_PUBLISHER_PASSWORD outside Git}" KAFKA_OTEL_CONSUMER_PASSWORD="$${KAFKA_OTEL_CONSUMER_PASSWORD:?Set KAFKA_OTEL_CONSUMER_PASSWORD outside Git}" $(VM) provision otel-edge-01
-
-otel-gateway-vm-status: ## Vérifier HAProxy, le Collecteur EDOT Edge et le collecteur backend OTel
-	@set -euo pipefail; $(VM) shell otel-edge-01 'sudo systemctl is-active haproxy && sudo systemctl is-active observability-otel-edge && curl --fail --silent http://127.0.0.1:13135/'; $(MAKE) otel-backend-status
+otel-gateway-vm-status: ## Vérifier le Collecteur EDOT Edge (santé, ports d'hôte de k3s-01) et le collecteur backend OTel
+	@$(KUBECTL_K3S) -n $(K8S_NAMESPACE) rollout status deployment/otel-edge --timeout=60s
+	@$(VM) shell $(K3S_VM_NAME) 'curl --fail --silent --max-time 5 -o /dev/null -w "Edge OTLP HTTP 192.168.33.50:4318 : %{http_code} (401 attendu sans clé)\n" -X POST http://192.168.33.50:4318/v1/metrics || test $$? = 22'
+	@$(MAKE) otel-backend-status
 
 kubernetes-observability-deploy: crossplane-secrets-wait ## Appliquer et vérifier les Collectors Kubernetes déclarés par Kustomize
 	@$(MAKE) crossplane-kubernetes-apply crossplane-kubernetes-wait
@@ -713,7 +710,7 @@ restock-service-logs-follow: ## Suivre les logs de restock-service
 
 ##@ Cache local des téléchargements
 
-# Répertoire de l'hôte monté par Lima sur /var/cache/lab dans les 4 VM (lima/base.yaml, même chemin).
+# Répertoire de l'hôte monté par Lima sur /var/cache/lab dans les 3 VM (lima/base.yaml, même chemin).
 # Il survit à make vms-destroy : fichiers, paquets .deb, images Podman, images des clusters k3s, providers
 # Terraform et paquets Crossplane y sont lus avant tout téléchargement.
 CACHE_DIR := $(HOME)/.cache/poc-crossplane-lab
@@ -867,7 +864,7 @@ crossplane-secrets-wait: ## Attendre les Secrets des workloads (SOPS dans le hub
 	  $(APP_NAMESPACE)/postgresql-credentials $(APP_NAMESPACE)/otel-edge-client-keys $(DEMO_API_NAMESPACE)/otel-edge-client-keys; do \
 	  for i in $$(seq 1 180); do $(KUBECTL) -n "$${secret%%/*}" get secret "$${secret#*/}" >/dev/null 2>&1 && break; sleep 5; done; \
 	  $(KUBECTL) -n "$${secret%%/*}" get secret "$${secret#*/}" -o name >/dev/null || exit 1; done
-	@for secret in $(K8S_NAMESPACE)/otel-edge-client-keys $(APP_NAMESPACE)/otel-edge-client-keys $(DEMO_API_NAMESPACE)/otel-edge-client-keys; do \
+	@for secret in $(K8S_NAMESPACE)/otel-edge-client-keys $(K8S_NAMESPACE)/otel-edge-tokens $(APP_NAMESPACE)/otel-edge-client-keys $(DEMO_API_NAMESPACE)/otel-edge-client-keys; do \
 	  for i in $$(seq 1 180); do $(KUBECTL_K3S) -n "$${secret%%/*}" get secret "$${secret#*/}" >/dev/null 2>&1 && break; sleep 5; done; \
 	  $(KUBECTL_K3S) -n "$${secret%%/*}" get secret "$${secret#*/}" -o name >/dev/null || exit 1; done
 

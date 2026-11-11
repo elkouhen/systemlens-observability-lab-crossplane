@@ -100,7 +100,7 @@ logger_provider:
     - batch:
         exporter:
           otlp_http:
-            endpoint: http://otel-edge-vm.elastic-stack.svc.cluster.local:4318/v1/logs
+            endpoint: http://otel-edge.elastic-stack.svc.cluster.local:4318/v1/logs
             headers_list: ${OTEL_EXPORTER_OTLP_HEADERS}
 instrumentation/development:
   java:
@@ -194,7 +194,7 @@ déclaration dans l'Application (ADR-020).
    tous avec `platform.id` = `caisse`.
 3. Valider avec `make otel-config-validate`, créer les topics avec
    `make otel-backend-vm-provision`, puis appliquer la liste des plateformes
-   servies avec `make otel-edge-vm-provision`.
+   servies dans le ConfigMap `otel-edge-config` (`architecture/gitops/otel-pipeline/k3s-01/edge-collector.yaml`, contrôlé par `make otel-config-validate`).
 
 L'attribut `data_stream.dataset` posé par l'application est supprimé par
 l'Edge (ADR-019). Sans plateforme au registre, les signaux de l'application

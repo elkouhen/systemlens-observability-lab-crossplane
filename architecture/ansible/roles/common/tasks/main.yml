@@ -122,7 +122,7 @@
 
 - name: Installer les dépendances système
   ansible.builtin.package:
-    name: [podman, curl, openssl, chrony, haproxy, firewalld, ca-certificates]
+    name: [curl, openssl, chrony, firewalld, ca-certificates]
     state: present
 
 - name: Déposer dans le cache local les paquets .deb téléchargés
@@ -130,26 +130,6 @@
   register: lab_cache_debs_save
   changed_when: lab_cache_debs_save.stdout is search('saved [1-9]')
   when: ansible_os_family == 'Debian'
-
-- name: Vérifier la présence du générateur Quadlet rootful
-  ansible.builtin.stat:
-    path: "{{ item }}"
-  loop:
-    - /usr/lib/systemd/system-generators/podman-system-generator
-    - /lib/systemd/system-generators/podman-system-generator
-  register: podman_quadlet_generator_paths
-
-- name: Définir le chemin du générateur Quadlet rootful
-  ansible.builtin.set_fact:
-    podman_system_generator_path: >-
-      {{ (podman_quadlet_generator_paths.results | selectattr('stat.exists') | map(attribute='item') | list | first) | default('') }}
-
-- name: Refuser une installation Podman sans générateur Quadlet
-  ansible.builtin.assert:
-    that: podman_system_generator_path | length > 0
-    fail_msg: >-
-      Le générateur Quadlet rootful est absent. Réinstaller le paquet Ubuntu
-      podman avant de déployer les unités .container.
 
 - name: Collecter l'état des services système
   ansible.builtin.service_facts:
@@ -205,7 +185,6 @@
     marker: '# {mark} lab OBSERVABILITY HOSTS'
     block: |
       {{ tools_ip }} tools-01
-      {{ otel_edge_ip }} otel-edge-01
       {{ elk_ip }} elk-01
       {{ k3s_ip }} k3s-01
       {{ elk_ip }} kibana.observability.test elasticsearch.observability.test fleet.observability.test apm.observability.test

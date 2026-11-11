@@ -40,7 +40,7 @@ while IFS= read -r duplicate_id; do
 done <<<"${duplicate_fleet_server_ids}"
 
 # Fleet Server reste en attente tant que sa policy ne possède pas au moins une
-# clé d'enrôlement active. Créer cette clé une seule fois permet au Quadlet de
+# clé d'enrôlement active. Créer cette clé une seule fois permet à Fleet Server de
 # démarrer correctement après une réinstallation ou une nouvelle VM.
 fleet_server_enrollment_keys="$(curl "${curl_args[@]}" \
   "${kibana_url}/api/fleet/enrollment_api_keys?perPage=1000" |

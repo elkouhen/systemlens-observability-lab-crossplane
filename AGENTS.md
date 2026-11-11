@@ -115,7 +115,7 @@ versionnée, reproductible et aussi petite que possible pour le besoin couvert.
 ## Portée du dépôt
 
 Ce dépôt contient un POC d'observabilité Elastic : une plateforme Kubernetes,
-quatre VM Lima (un hub k3s de gestion et trois cibles) provisionnées par Ansible et l'application de démonstration
+trois VM Lima (un hub k3s de gestion et deux clusters cibles) provisionnées par Ansible et l'application de démonstration
 `supermarket-demo`. Conserver la séparation des responsabilités :
 
 - `platform/` : composants transverses et chaîne d'observabilité Elastic ;

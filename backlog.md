@@ -360,6 +360,9 @@ Contrainte : le Mac a 16 Go. Mesurer la mémoire réelle à chaque étape (`top`
   `sha-<court>`) ; l'API `Application` tire `ghcr.io/elkouhen/systemlens-observability-lab-crossplane/<image>` ;
   `make deploy` attend les images (`make images-wait`) au lieu de les construire : Colima n'est
   plus nécessaire au lab. À faire avant la reconstruction finale.
+- [ ] H8 Collecteur Edge dans k3s-01 (Deployment `otel-edge`, Service pour le cluster, ports d'hôte
+  4317/4318 pour les agents des VM et le poste) ; suppression de la VM `otel-edge-01`, de HAProxy
+  et du rôle `otel_edge` : 3 VM (tools-01, k3s-01, elk-01). Identité Kafka et ACL inchangées.
 
 ## Lot 4 : provider Elastic natif (écarté)
 

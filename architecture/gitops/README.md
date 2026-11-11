@@ -5,7 +5,7 @@ chaque groupe réunit en un seul endroit ses objets Kubernetes, ses ressources C
 aux providers et ses Secrets chiffrés. Chaque groupe est une Application Argo CD synchronisée dans
 le cluster de gestion **`tools-01`** (le hub) depuis la branche `main` du dépôt GitHub
 ([`argocd/`](argocd/README.md)) : un changement est appliqué une fois committé et poussé. Ansible ne
-garde que l'installation des hôtes (OS, k3s, Edge, agents EDOT).
+garde que l'installation des hôtes (OS, k3s, agents EDOT).
 
 ```text
                 tools-01 (hub) : Argo CD, Crossplane, cert-manager, clé age
@@ -80,7 +80,7 @@ Ajouter une application revient à créer un répertoire de groupe sur ce modèl
 | `crossplane` | Crossplane lui-même (`helm-release.yaml`), cache des paquets, providers (kafka, sql, terraform, http, kubernetes), fonctions, runtime et clusters cibles (`install/`) ; XRD et Compositions des API `Application`, `OtelPlatform` (3 topics avec rétention et segments, ACL Write/Describe par publisher), `PostgreSQLInstance`, `MongoDBInstance`, `KafkaCluster` et `ObservabilityStack` (`apis/`) |
 | `cert-manager` | cert-manager (`helm-release.yaml`, chart Helm officiel, CRD comprises) et `ClusterIssuer` autosigné `selfsigned`, dans le hub |
 | `operators` | une Application Argo CD par chart Helm, synchronisée dans son cluster cible : CloudNativePG 1.30.1 (chart 0.29.1), Strimzi 1.3.1 et MongoDB Controllers for Kubernetes 1.15.0 dans k3s-01, ECK 3.5.0 dans elk-01 (images arm64 vérifiées) |
-| `otel-pipeline` | `KafkaCluster` otel-kafka (SCRAM, ACL, administrateur `otel-admin`, NodePort 31092 pour l'Edge et le hub) et sa `ClusterProviderConfig` (`kafka.yaml`) ; registre `OtelPlatform` (`platforms.yaml`, lu aussi par Ansible) ; comptes SCRAM `otel_publisher_otel_edge_01` et `otel_consumer` et ACL (`kafka-accounts.yaml`) ; Secrets des collecteurs recopiés dans k3s-01 (`target.yaml`) ; `k3s-01/` : Service vers le Collecteur Edge, collecteurs Kubernetes, collecteur backend (Kafka OTel → Elasticsearch) et collecteur `otel-middleware` (supervision de PostgreSQL, MongoDB et des deux Kafka) |
+| `otel-pipeline` | `KafkaCluster` otel-kafka (SCRAM, ACL, administrateur `otel-admin`, NodePort 31092 pour le hub) et sa `ClusterProviderConfig` (`kafka.yaml`) ; registre `OtelPlatform` (`platforms.yaml`, lu aussi par Ansible) ; comptes SCRAM `otel_publisher_otel_edge_01` et `otel_consumer` et ACL (`kafka-accounts.yaml`) ; Secrets des collecteurs recopiés dans k3s-01 (`target.yaml`) ; `k3s-01/` : Collecteur Edge (`edge-collector.yaml` : Deployment `otel-edge`, Service et ports d'hôte 4317/4318, clés Bearer du Secret `otel-edge-tokens`), collecteurs Kubernetes, collecteur backend (Kafka OTel → Elasticsearch) et collecteur `otel-middleware` (supervision de PostgreSQL, MongoDB et des deux Kafka) |
 | `elastic` | `ObservabilityStack` elastic (`stack.yaml` : Elasticsearch, Kibana et Fleet Server ECK dans elk-01, en HTTP, mot de passe `elastic` du Secret SOPS) ; via Terraform `elastic/elasticstack` : ILM, templates et pipelines `@custom`, clé API `otel-collector-writer` publiée dans `elastic-stack/otel-elasticsearch-credentials` du hub (`elasticsearch.yaml`), 11 packages et policies Fleet (`fleet.yaml`), data view APM (`kibana-saved-objects.yaml`), 4 règles d'alerte (`kibana-alerting.yaml`) ; via provider-http : 2 dashboards (`kibana-dashboards.yaml`) |
 | `demo-api` | namespace `h0tl-demo-app` (hub et k3s-01), `Application` demo-api et sa configuration d'agent, clé Bearer de l'Edge |
 
@@ -178,9 +178,9 @@ l'`ObservabilityStack`).
 ## Mots de passe
 
 Les comptes SCRAM Kafka reprennent la dérivation du lab : `sha256(KAFKA_OTEL_PUBLISHER_PASSWORD:<compte>)`,
-pour `otel_publisher_<hôte>` comme pour l'administrateur `otel-admin`. Ansible configure l'Edge avec
-ces mots de passe, Crossplane crée les comptes, et les deux partagent les mêmes valeurs sans échange
-entre eux. Le compte MongoDB `crossplane_admin` suit la même règle avec
+pour `otel_publisher_<edge>` comme pour l'administrateur `otel-admin`. `credentials.sh` en dérive les
+Secrets SOPS du hub (comptes créés par Crossplane, mot de passe de l'Edge recopié dans k3s-01) ;
+Ansible dérive de même le mot de passe administrateur pour ses vérifications. Le compte MongoDB `crossplane_admin` suit la même règle avec
 `sha256(MONGODB_PASSWORD:crossplane_admin)` ; `otel_monitor` et `observability` gardent
 `MONGODB_PASSWORD`, `postgres`, `observability` et `otel` (PostgreSQL) `POSTGRESQL_PASSWORD`.
 
@@ -207,5 +207,5 @@ make demo-api-deploy               # attendre le groupe demo-api
 
 Ajouter une plateforme OTel revient à ajouter un document dans `otel-pipeline/platforms.yaml`, à
 committer et pousser, puis à lancer `make crossplane-platforms-apply`. Le collecteur backend découvre
-les nouveaux topics par expression régulière, et l'Edge prend la plateforme en compte à son prochain
-provisionnement.
+les nouveaux topics par expression régulière ; la plateforme est ajoutée à la liste servie par l'Edge
+dans `otel-pipeline/k3s-01/edge-collector.yaml` (contrôlée par `make otel-config-validate`).

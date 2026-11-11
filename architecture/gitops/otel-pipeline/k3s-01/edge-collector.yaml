@@ -1,0 +1,249 @@
+# Collecteur EDOT Edge (ADR-015, ADR-020), point d'entrée OTLP unique du lab, dans k3s-01 :
+# - dans le cluster, Service otel-edge (applications, collecteurs Kubernetes et de supervision) ;
+# - hors du cluster, ports d'hôte 4317 et 4318 de k3s-01 (192.168.33.50) : agents EDOT des VM,
+#   et 127.0.0.1:4318 sur le poste par la redirection Lima de k3s-01 (make otel-validate).
+# Il authentifie chaque client par sa clé Bearer (Secret otel-edge-tokens), publie chaque
+# ressource dans le topic otel-<signal>-<plateforme>-<environnement> du Kafka OTel si
+# platforms.yaml attribue cette plateforme à l'Edge otel-edge-01 (publishers), et rejette les
+# autres (filter/unrouted). Identité Kafka : otel_publisher_otel_edge_01 (ACL de l'API
+# OtelPlatform). make otel-config-validate vérifie que la liste des plateformes ci-dessous est
+# celle de platforms.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-edge-config
+  namespace: elastic-stack
+data:
+  edge.yaml: |
+    extensions:
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/extension/bearertokenauth
+      bearertokenauth/clients:
+        filename: /etc/otel-edge-tokens/edge-tokens
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/extension/healthcheckextension
+      health_check:
+        endpoint: 0.0.0.0:13135
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/extension/storage/filestorage
+      file_storage:
+        directory: /var/lib/otel-edge
+
+    receivers:
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector/tree/main/receiver/otlpreceiver
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+            auth:
+              authenticator: bearertokenauth/clients
+          http:
+            endpoint: 0.0.0.0:4318
+            auth:
+              authenticator: bearertokenauth/clients
+      # Télémétrie interne de l'Edge, sans authentification, locale au pod.
+      otlp/internal:
+        protocols:
+          grpc:
+            endpoint: 127.0.0.1:14319
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 400
+        spike_limit_mib: 80
+      batch:
+        timeout: 1s
+        send_batch_size: 512
+      # Topic Kafka par ressource (ADR-020) : posé si la plateforme et l'environnement déclarés par
+      # le client (platform.id, deployment.environment.name) sont attribués à cet Edge dans
+      # platforms.yaml. Un topic reçu est supprimé d'abord ; le backend retire otel.kafka.topic
+      # avant l'indexation.
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/transformprocessor
+      transform/kafka-topic:
+        error_mode: ignore
+        trace_statements:
+          - context: resource
+            statements:
+              - delete_key(resource.attributes, "otel.kafka.topic")
+              - set(resource.attributes["otel.kafka.topic"], Concat(["otel-traces", resource.attributes["platform.id"], resource.attributes["deployment.environment.name"]], "-")) where IsMatch(Concat([resource.attributes["platform.id"], resource.attributes["deployment.environment.name"]], "-"), "^(k3s-homologation|supermarche-homologation|elk-homologation|demo-homologation)$")
+        metric_statements:
+          - context: resource
+            statements:
+              - delete_key(resource.attributes, "otel.kafka.topic")
+              - set(resource.attributes["otel.kafka.topic"], Concat(["otel-metrics", resource.attributes["platform.id"], resource.attributes["deployment.environment.name"]], "-")) where IsMatch(Concat([resource.attributes["platform.id"], resource.attributes["deployment.environment.name"]], "-"), "^(k3s-homologation|supermarche-homologation|elk-homologation|demo-homologation)$")
+        log_statements:
+          - context: resource
+            statements:
+              - delete_key(resource.attributes, "otel.kafka.topic")
+              - set(resource.attributes["otel.kafka.topic"], Concat(["otel-logs", resource.attributes["platform.id"], resource.attributes["deployment.environment.name"]], "-")) where IsMatch(Concat([resource.attributes["platform.id"], resource.attributes["deployment.environment.name"]], "-"), "^(k3s-homologation|supermarche-homologation|elk-homologation|demo-homologation)$")
+      # Rejet des ressources sans plateforme servie (ADR-020). Les compteurs
+      # otelcol_processor_filter_{logs,datapoints,spans}_filtered rendent l'oubli visible
+      # (make otel-routing-verify).
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/filterprocessor
+      filter/unrouted:
+        error_mode: ignore
+        traces:
+          span:
+            - resource.attributes["otel.kafka.topic"] == nil
+        metrics:
+          metric:
+            - resource.attributes["otel.kafka.topic"] == nil
+        logs:
+          log_record:
+            - resource.attributes["otel.kafka.topic"] == nil
+
+    exporters:
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/kafkaexporter
+      kafka/otlp:
+        brokers: ["otel-kafka-kafka-bootstrap.elastic-stack.svc:9092"]
+        auth:
+          sasl:
+            username: otel_publisher_otel_edge_01
+            password: "${env:OTEL_KAFKA_PUBLISHER_PASSWORD}"
+            mechanism: SCRAM-SHA-512
+        topic_from_attribute: otel.kafka.topic
+        # File persistante (ADR-013) : un lot accepté par l'Edge survit à un redémarrage et à une
+        # panne de Kafka ; pleine, elle refuse les données et les clients réessaient. Un lot est
+        # abandonné après 30 min de réessais (refus durable par ACL, ADR-017).
+        sending_queue:
+          enabled: true
+          queue_size: 1000
+          storage: file_storage
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 30s
+          max_elapsed_time: 30m
+
+    service:
+      extensions: [health_check, file_storage, bearertokenauth/clients]
+      # Télémétrie interne (ADR-013), plateforme elk (ADR-020), dataset collectortelemetry.
+      telemetry:
+        resource:
+          attributes:
+            - name: service.name
+              value: otel-edge
+            - name: service.version
+              value: "9.5.4"
+            - name: service.instance.id
+              value: "${env:K8S_POD_NAME}"
+            - name: host.name
+              value: "${env:K8S_NODE_NAME}"
+            - name: platform.id
+              value: elk
+            - name: deployment.environment.name
+              value: homologation
+            - name: data_stream.dataset
+              value: collectortelemetry
+        metrics:
+          level: normal
+          readers:
+            - periodic:
+                interval: 30000
+                exporter:
+                  otlp:
+                    protocol: grpc
+                    endpoint: http://127.0.0.1:14319
+        logs:
+          processors:
+            - batch:
+                exporter:
+                  otlp:
+                    protocol: grpc
+                    endpoint: http://127.0.0.1:14319
+      pipelines:
+        metrics/internal-telemetry:
+          receivers: [otlp/internal]
+          processors: [memory_limiter, transform/kafka-topic, filter/unrouted, batch]
+          exporters: [kafka/otlp]
+        logs/internal-telemetry:
+          receivers: [otlp/internal]
+          processors: [memory_limiter, transform/kafka-topic, filter/unrouted, batch]
+          exporters: [kafka/otlp]
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/kafka-topic, filter/unrouted, batch]
+          exporters: [kafka/otlp]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/kafka-topic, filter/unrouted, batch]
+          exporters: [kafka/otlp]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/kafka-topic, filter/unrouted, batch]
+          exporters: [kafka/otlp]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: otel-edge-queue
+  namespace: elastic-stack
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-edge
+  namespace: elastic-stack
+spec:
+  replicas: 1
+  # File persistante sur un volume ReadWriteOnce et ports d'hôte : un seul pod à la fois.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: otel-edge}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: otel-edge}
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: collector
+          image: docker.elastic.co/elastic-agent/elastic-otel-collector:9.5.4
+          args: ["--config=/etc/otel/edge.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            seccompProfile: {type: RuntimeDefault}
+          env:
+            - name: K8S_POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: K8S_NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            - name: OTEL_KAFKA_PUBLISHER_PASSWORD
+              valueFrom: {secretKeyRef: {name: otel-collector-credentials, key: kafka-publisher-password}}
+          ports:
+            # Ports d'hôte : entrée OTLP des agents EDOT des VM (192.168.33.50) et du poste
+            # (redirection Lima de k3s-01).
+            - {name: otlp-grpc, containerPort: 4317, hostPort: 4317}
+            - {name: otlp-http, containerPort: 4318, hostPort: 4318}
+            - {name: health, containerPort: 13135}
+          volumeMounts:
+            - {name: config, mountPath: /etc/otel, readOnly: true}
+            - {name: tokens, mountPath: /etc/otel-edge-tokens, readOnly: true}
+            - {name: queue, mountPath: /var/lib/otel-edge}
+          readinessProbe: {httpGet: {path: /, port: health}}
+          livenessProbe: {httpGet: {path: /, port: health}}
+          resources:
+            requests: {cpu: 100m, memory: 192Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: config
+          configMap: {name: otel-edge-config}
+        - name: tokens
+          secret: {secretName: otel-edge-tokens}
+        - name: queue
+          persistentVolumeClaim: {claimName: otel-edge-queue}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-edge
+  namespace: elastic-stack
+spec:
+  selector: {app.kubernetes.io/name: otel-edge}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc}
+    - {name: otlp-http, port: 4318, targetPort: otlp-http}

@@ -17,7 +17,7 @@ help: ## Afficher les tâches de l'architecture par défaut
 	@printf '  apps-codeql-module-graph Analyser les dépendances de modules Java et actualiser le graphe\n'
 	@printf '  apm-install          Installer le contexte APM déclaré dans apm.yml\n'
 	@printf '  apm-audit            Auditer le contexte APM du projet\n'
-	@printf '  vms-up               Démarrer et provisionner les quatre VM\n'
+	@printf '  vms-up               Démarrer et provisionner les trois VM\n'
 	@printf '  deploy               Déployer la plateforme et les applications après vms-up\n'
 	@printf '  vms-destroy          Détruire les VM de l’architecture active\n'
 	@printf "  ci-run               Exécuter les validations de l'architecture\n"

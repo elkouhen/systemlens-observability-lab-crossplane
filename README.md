@@ -20,7 +20,7 @@ make vm-status
 make architecture-deploy
 ```
 
-`make vms-start` démarre les quatre VM en parallèle, puis provisionne leurs rôles
+`make vms-start` démarre les trois VM en parallèle, puis provisionne leurs rôles
 avec un seul playbook Ansible parallèle. Après le contrôle `make vm-status`,
 `make architecture-deploy` déploie la plateforme Elastic, Fleet,
 Kubernetes et l'application.

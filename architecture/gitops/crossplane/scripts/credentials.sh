@@ -6,7 +6,7 @@
 set -euo pipefail
 out=${1:?Usage : credentials.sh <répertoire>}
 : "${KAFKA_OTEL_PUBLISHER_PASSWORD:?}" "${KAFKA_OTEL_CONSUMER_PASSWORD:?}" "${POSTGRESQL_PASSWORD:?}" "${ELASTIC_PASSWORD:?}" "${MONGODB_PASSWORD:?}" \
-  "${OTEL_EDGE_KEY_KUBERNETES:?}" "${OTEL_EDGE_KEY_KUBERNETES_CLUSTER:?}"
+  "${OTEL_EDGE_KEY_KUBERNETES:?}" "${OTEL_EDGE_KEY_KUBERNETES_CLUSTER:?}" "${OTEL_EDGE_KEY_K3S_01:?}" "${OTEL_EDGE_KEY_ELK_01:?}"
 KUBECTL=${KUBECTL:-kubectl}
 
 # Même dérivation que le lab (group_vars/all.yml) : sha256("<secret racine>:<compte>")
@@ -33,7 +33,13 @@ secret otel-pipeline crossplane-system kafka-otel-accounts \
   otel_consumer="$KAFKA_OTEL_CONSUMER_PASSWORD"
 secret otel-pipeline elastic-stack otel-edge-client-keys "${edge_keys[@]}"
 secret otel-pipeline elastic-stack otel-collector-credentials kafka-consumer-password="$KAFKA_OTEL_CONSUMER_PASSWORD" \
+  kafka-publisher-password="$(derive otel_publisher_otel_edge_01)" \
   postgresql-password="$POSTGRESQL_PASSWORD" mongodb-password="$MONGODB_PASSWORD"
+# Clés Bearer acceptées par le Collecteur Edge de k3s-01 (une par ligne, ADR-015) : agents EDOT des
+# VM k3s-01 et elk-01, collecteurs Kubernetes (dont les applications).
+secret otel-pipeline elastic-stack otel-edge-tokens edge-tokens="$(printf '%s # %s\n' \
+  "$OTEL_EDGE_KEY_K3S_01" k3s-01 "$OTEL_EDGE_KEY_ELK_01" elk-01 \
+  "$OTEL_EDGE_KEY_KUBERNETES" otel-kubernetes "$OTEL_EDGE_KEY_KUBERNETES_CLUSTER" otel-kubernetes-cluster)"
 
 # Elastic : Terraform, API Kibana, mot de passe elastic lu par les cibles make.
 secret elastic crossplane-system elastic-terraform tfvars="$(jq -cn --arg p "$ELASTIC_PASSWORD" '{elastic_password: $p}')"

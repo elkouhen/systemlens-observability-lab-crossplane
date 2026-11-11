@@ -74,7 +74,7 @@ spec:
                       default: k3s-01
                     edgeEndpoint:
                       type: string
-                      default: http://otel-edge-vm.elastic-stack.svc.cluster.local:4318
+                      default: http://otel-edge.elastic-stack.svc.cluster.local:4318
                     micrometerMetrics:
                       type: boolean
                       default: false

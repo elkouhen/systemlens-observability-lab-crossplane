@@ -9,8 +9,8 @@ concurrente.
 
 ## Ce qui change par rapport à systemlens-observability-lab
 
-Quatre VM au lieu de cinq : un **cluster de gestion** (hub) pilote deux clusters cibles, et tout ce
-qui tourne dans les clusters est déclaré dans Git.
+Trois VM au lieu de cinq : un **cluster de gestion** (hub) pilote deux clusters cibles, et tout ce
+qui tourne dans les clusters est déclaré dans Git, Collecteur Edge compris.
 
 - **Hub de gestion `tools-01`.** Argo CD, Crossplane et ses providers, cert-manager et la clé age
   tournent dans le cluster k3s du hub. Argo CD y synchronise depuis la branche `main` du dépôt
@@ -25,14 +25,14 @@ qui tourne dans les clusters est déclaré dans Git.
   PostgreSQL et MongoDB, ILM, pipelines, clé API, Fleet, data view, dashboards et règles Kibana sont
   configurés par les autres providers, à travers les points d'accès réseau des back-ends.
 - **Opérateurs et collecteurs par Argo CD.** Les charts Helm des opérateurs (CloudNativePG, Strimzi,
-  MongoDB, ECK) et les collecteurs OTel de `k3s-01` sont synchronisés par Argo CD directement dans
-  leur cluster cible.
-- **Ansible n'installe plus que les hôtes** : OS, k3s, Collecteur Edge et HAProxy, agents EDOT.
+  MongoDB, ECK) et les collecteurs OTel de `k3s-01`, Collecteur Edge compris, sont synchronisés par
+  Argo CD directement dans leur cluster cible.
+- **Ansible n'installe plus que les hôtes** : OS, k3s, agents EDOT.
 - **VM Lima.** Les VM sont décrites dans `lima/` et pilotées par `scripts/vm` (création,
   provisionnement Ansible, shell, arrêt, suppression), utilisé par le `Makefile`. Les IP `192.168.33.x` sont
   portées par le réseau partagé Lima `user-v2` et joignables entre VM. Depuis le Mac, on passe par
   les redirections de port `127.0.0.1` : 6443 (API du hub), 8080 (interface Argo CD), 6444 (API de
-  k3s-01), 6445 (API de elk-01), 9200, 5601 et 8220 (elk-01), 4317 et 4318 (otel-edge-01).
+  k3s-01), 6445 (API de elk-01), 9200, 5601 et 8220 (elk-01), 4317 et 4318 (Collecteur Edge, k3s-01).
 
 ## Cache local des téléchargements
 
@@ -40,7 +40,7 @@ Une reconstruction télécharge plusieurs gigaoctets (images Elastic, Kafka, Pos
 opérateurs, collecteurs, archive Elastic Agent, k3s et ses images, Crossplane et ses providers) à
 travers le proxy TLS ; le débit est le même depuis le Mac et depuis une VM (environ 13 Mo/s). Le
 répertoire `~/.cache/poc-crossplane-lab` de l'hôte est monté par Lima (virtiofs, écriture) sur
-`/var/cache/lab` dans les 4 VM et survit à `make vms-destroy` :
+`/var/cache/lab` dans les 3 VM et survit à `make vms-destroy` :
 
 | Contenu | Lu par | Déposé par |
 |---|---|---|
@@ -61,16 +61,15 @@ plus lentement. `make cache-status` affiche le contenu et le montage, `make cach
 tools-01     192.168.33.60  hub k3s : Argo CD, Crossplane et providers, cert-manager, clé age
    │  Argo CD (charts Helm, collecteurs)  ·  Crossplane (provider-kubernetes, providers des back-ends)
    ├──▶ k3s-01   192.168.33.50  k3s applicatif : services Java, PostgreSQL (CloudNativePG),
-   │                            MongoDB, Kafka métier et Kafka OTel (Strimzi), collecteurs OTel
-   │                            (Kubernetes, backend, supervision des back-ends)
+   │                            MongoDB, Kafka métier et Kafka OTel (Strimzi), Collecteur Edge
+   │                            (ports d'hôte 4317/4318), collecteurs OTel (Kubernetes, backend,
+   │                            supervision des back-ends)
    └──▶ elk-01   192.168.33.40  k3s + ECK : Elasticsearch, Kibana, Fleet Server 9.5.4 (Basic)
-
-otel-edge-01 192.168.33.30  VM Ansible : Collecteur EDOT Edge et HAProxy (point d'entrée OTLP)
 ```
 
-Chemin des signaux : applications et collecteurs de `k3s-01`, agents EDOT des VM → Collecteur Edge
-(`otel-edge-01`, OTLP avec clé Bearer) → Kafka OTel de `k3s-01` (NodePort 31092, SCRAM, un topic
-par plateforme) → collecteur backend de `k3s-01` → Elasticsearch de `elk-01` (192.168.33.40:9200).
+Chemin des signaux : applications et collecteurs de `k3s-01` (Service `otel-edge`), agents EDOT
+des VM (`192.168.33.50:4318`) → Collecteur Edge de `k3s-01` (Deployment `otel-edge`, OTLP avec clé
+Bearer) → Kafka OTel de `k3s-01` (listener interne, SCRAM, un topic par plateforme) → collecteur backend de `k3s-01` → Elasticsearch de `elk-01` (192.168.33.40:9200).
 Les accès Kibana, Elasticsearch et Fleet restent directs vers `elk-01` (Services LoadBalancer
 de k3s sur 9200, 5601 et 8220).
 
@@ -87,11 +86,10 @@ Mesures du lot 8 (`free -m` dans chaque VM, lab déployé et stable) :
 | VM | Allouée | Utilisée | Ce qui la remplit |
 |---|---|---|---|
 | `tools-01` | 4 Gio | ~2,7 Gio | serveur k3s (plafonné par `GOMEMLIMIT=1GiB`), Argo CD, Crossplane et 5 providers |
-| `k3s-01` | 6 Gio | ~4,9 Gio | 3 services Java + demo-api (512 Mio max), 2 Kafka (tas 256 Mio), PostgreSQL, MongoDB, collecteurs |
+| `k3s-01` | 6 Gio | ~5 Gio | 3 services Java + demo-api (512 Mio max), 2 Kafka (tas 256 Mio), PostgreSQL, MongoDB, Collecteur Edge et collecteurs |
 | `elk-01` | 4,5 Gio | ~3,7 Gio | Elasticsearch (tas 768 Mio, limite 1,5 Gio), Kibana (1 Gio), Fleet Server (512 Mio) |
-| `otel-edge-01` | 1,5 Gio | ~0,6 Gio | Collecteur Edge, HAProxy, agent EDOT |
 
-Soit 16 Gio alloués (22 Gio avant le lot 8). Les limites de chaque composant sont déclarées dans
+Soit 14,5 Gio alloués (22 Gio avant le lot 8 ; la VM `otel-edge-01`, 1,5 Gio, est supprimée). Les limites de chaque composant sont déclarées dans
 Git : valeurs par défaut des API Crossplane (`gitops/crossplane/apis/*/definition.yaml`), que
 chaque instance peut surcharger, valeurs Helm des opérateurs (`gitops/operators/`) et manifests des
 collecteurs (`gitops/otel-pipeline/k3s-01/`).
@@ -129,7 +127,7 @@ Pour construire et déployer :
 
 ```bash
 make apps-test               # les images sont construites par GitHub (build-images.yml)
-make vms-start                # crée et provisionne les 4 VM (Ansible)
+make vms-start                # crée et provisionne les 3 VM (Ansible)
 make architecture-deploy      # make deploy : hub, clusters cibles, Elastic, applications
 ```
 
@@ -172,7 +170,7 @@ l'opérateur.
 Documents propres à l'architecture :
 
 - [diagramme C4 interactif](https://elkouhen.github.io/systemlens-observability-lab/c4.html#/) ;
-- [provisionnement des VM `tools-01`, `k3s-01`, `elk-01` et `otel-edge-01`](ansible/README.md) ;
+- [provisionnement des VM `tools-01`, `k3s-01` et `elk-01`](ansible/README.md) ;
 - [configuration GitOps des groupes et des clusters cibles](gitops/README.md) ;
 
 La rétention des signaux et des logs est vérifiable avec

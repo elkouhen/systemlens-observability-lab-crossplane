@@ -31,7 +31,7 @@ La configuration déclarative de l'agent est dans
 `architecture/gitops/demo-api/otel-agent.yaml`, chargée par
 `OTEL_CONFIG_FILE`, avec un export des métriques toutes les 15 secondes. Les
 trois signaux partent en OTLP HTTP sur le port `4318` du Service
-`otel-edge-vm`. Les
+`otel-edge`. Les
 sondes Kubernetes sont TCP pour ne pas créer de transactions.
 
 ## Data streams alimentés
@@ -48,7 +48,7 @@ sondes Kubernetes sont TCP pour ne pas créer de transactions.
 - La plateforme `demo` déclarée dans `otel_platforms`
   (`architecture/ansible/inventory/group_vars/all.yml`) avec `otel-edge-01`
   en `publisher`, puis `make otel-backend-vm-provision` (topics) et
-  `make otel-edge-vm-provision` (plateformes servies). L'Application
+  le ConfigMap `otel-edge-config` du Collecteur Edge (plateformes servies). L'Application
   `architecture/gitops/demo-api/application.yaml` déclare `platform.id=demo` et
   `deployment.environment.name=homologation` (ADR-020) ; sans plateforme
   servie, l'Edge rejette les signaux.

@@ -28,13 +28,12 @@ sont provisionnés par Ansible en mode EDOT standalone.
 
 | Composant | Déploiement | Fonction technique |
 | --- | --- | --- |
-| Service `otel-edge-vm` | Kubernetes, namespace `elastic-stack` | Exposer le Collecteur Edge sur les ports `4317` et `4318` |
+| Collecteur Edge EDOT (`otel-edge`) | `k3s-01`, namespace `elastic-stack` | Authentifier les clients OTLP (`4317`, `4318` : Service et ports d’hôte) et publier dans Kafka |
 | EDOT DaemonSet | Kubernetes | Collecter les métriques hôte et kubelet prévues par la configuration |
 | Argo CD, Crossplane | `tools-01` (hub k3s) | Synchroniser Git et composer les ressources des clusters cibles (ADR-021) |
 | Kafka OTel (Strimzi) | `k3s-01` | Tamponner les signaux applicatifs, Kubernetes et VM dans des topics par plateforme |
 | Collector backend EDOT | `k3s-01` | Consommer Kafka, traiter les signaux et les exporter vers Elastic |
 | Collecteur `otel-middleware` | `k3s-01` | Superviser PostgreSQL, MongoDB et les deux Kafka |
-| HAProxy | `otel-edge-01` | Exposer les points d’entrée OTLP |
 | Elasticsearch (ECK) | `elk-01` | Stocker les signaux et fournir les API d’ingestion et de recherche |
 | Kibana | `elk-01` | Fournir Discover, APM, Fleet et les dashboards |
 | Fleet Server | `elk-01` | Fournir le plan de contrôle Fleet et le monitoring OpAMP optionnel |
@@ -47,7 +46,7 @@ ressources de plateforme utilisent `elastic-stack`.
 
 ### 3.1 Interfaces Kubernetes
 
-Le Service `otel-edge-vm` expose le Collecteur Edge sur les ports OTLP `4317`
+Le Service `otel-edge` expose le Collecteur Edge sur les ports OTLP `4317`
 et `4318`. Les applications et les collecteurs Kubernetes utilisent ce Service
 comme point d’entrée OTLP.
 
@@ -76,7 +75,7 @@ environnement, `otel-<signal>-<plateforme>-<environnement>`
 | `otel-<signal>-supermarche-homologation` | Collecteur Edge : services `supermarket-demo` (namespace `h0tl-supermarche-app`) et supervision de ses bases et de son Kafka | Collector backend |
 | `otel-<signal>-k3s-homologation` | Collecteur Edge : collecteurs Kubernetes et VM `k3s-01` | Collector backend |
 | `otel-<signal>-demo-homologation` | Collecteur Edge : `demo-api` (namespace `h0tl-demo-app`) | Collector backend |
-| `otel-<signal>-elk-homologation` | Collecteur Edge : VM `elk-01` et `otel-edge-01`, télémétrie de l'Edge, supervision du Kafka OTel | Collector backend |
+| `otel-<signal>-elk-homologation` | Collecteur Edge : VM `elk-01`, télémétrie de l'Edge, supervision du Kafka OTel | Collector backend |
 
 Chaque client déclare `platform.id` et `deployment.environment.name` ; le
 collecteur Edge publie dans le topic de cette plateforme si `otel_platforms`

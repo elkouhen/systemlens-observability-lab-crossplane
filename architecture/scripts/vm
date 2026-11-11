@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pilotage des 4 VM Lima du lab (lima/<vm>.yaml) et de leur provisionnement Ansible.
+# Pilotage des 3 VM Lima du lab (lima/<vm>.yaml) et de leur provisionnement Ansible.
 #
 #   vm up [--no-provision] [--parallel] [vm...]   crée ou démarre ; provisionne les VM créées
 #   vm provision <vm> [--playbook fleet-agent]    rejoue ansible/site.yml (ou fleet-agent.yml)
@@ -10,13 +10,13 @@
 #   vm stop [vm...] | vm restart [vm...]          arrêt, ou arrêt puis démarrage sans provisionnement
 #   vm delete [vm...]                             suppression des VM et de leurs disques
 #
-# Sans nom de VM, les commandes portent sur les 4 VM du lab.
+# Sans nom de VM, les commandes portent sur les 3 VM du lab.
 set -euo pipefail
 
 ARCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIMA_DIR="$ARCH_ROOT/lima"
 INVENTORY="$ARCH_ROOT/ansible/inventory/lima.yml"
-ALL_VMS=(tools-01 k3s-01 elk-01 otel-edge-01)
+ALL_VMS=(tools-01 k3s-01 elk-01)
 
 die() { echo "vm: $*" >&2; exit 1; }
 exists() { limactl list -q 2>/dev/null | grep -qx "$1"; }
@@ -48,10 +48,7 @@ print(json.dumps({
     "node_ip": e["NODE_IP"],
     "fleet_enrollment_token": e.get("FLEET_ENROLLMENT_TOKEN", ""),
     "otel_kafka_secret": e.get("KAFKA_OTEL_PUBLISHER_PASSWORD", ""),
-    "otel_kafka_consumer_password": e.get("KAFKA_OTEL_CONSUMER_PASSWORD", ""),
     "zscaler_ca_cert_content": e["CA"],
-    "otel_edge_key_kubernetes": e.get("OTEL_EDGE_KEY_KUBERNETES", ""),
-    "otel_edge_key_kubernetes_cluster": e.get("OTEL_EDGE_KEY_KUBERNETES_CLUSTER", ""),
 }))
 PY
   echo "$f"

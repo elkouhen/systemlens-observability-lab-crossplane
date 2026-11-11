@@ -27,7 +27,7 @@ tracer_provider:
     - batch:
         exporter:
           otlp_http:
-            endpoint: http://otel-edge-vm.elastic-stack.svc.cluster.local:4318/v1/traces
+            endpoint: http://otel-edge.elastic-stack.svc.cluster.local:4318/v1/traces
             headers_list: ${OTEL_EXPORTER_OTLP_HEADERS}
 
 # Métriques de l'agent : runtime JVM et HTTP, lues par l'onglet Metrics de
@@ -38,7 +38,7 @@ meter_provider:
         interval: 15000
         exporter:
           otlp_http:
-            endpoint: http://otel-edge-vm.elastic-stack.svc.cluster.local:4318/v1/metrics
+            endpoint: http://otel-edge.elastic-stack.svc.cluster.local:4318/v1/metrics
             headers_list: ${OTEL_EXPORTER_OTLP_HEADERS}
 
 # Logs Logback exportés en OTLP natif, corrélés aux traces (ADR-012).
@@ -47,7 +47,7 @@ logger_provider:
     - batch:
         exporter:
           otlp_http:
-            endpoint: http://otel-edge-vm.elastic-stack.svc.cluster.local:4318/v1/logs
+            endpoint: http://otel-edge.elastic-stack.svc.cluster.local:4318/v1/logs
             headers_list: ${OTEL_EXPORTER_OTLP_HEADERS}
 
 instrumentation/development:

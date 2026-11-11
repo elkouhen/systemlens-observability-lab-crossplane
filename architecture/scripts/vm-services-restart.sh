@@ -43,11 +43,6 @@ wait_remote_command() {
   return 1
 }
 
-restart_remote_services otel-edge-01 \
-  haproxy.service observability-otel-edge.service elastic-agent.service
-wait_remote_command otel-edge-01 'collecteur Edge OTel' \
-  'curl --fail --silent http://127.0.0.1:13135/'
-
 # Clusters k3s : le hub d'abord (Argo CD, Crossplane), puis les clusters cibles. Les workloads
 # (opérateurs, bases, Kafka, Elastic, collecteurs) redémarrent avec k3s.
 for entry in tools-01:tools k3s-01:k3s elk-01:elk; do

@@ -19,17 +19,16 @@
       - otel_platform_keys | select('match', '^[a-z0-9_]+-[a-z0-9_]+$') | list | length == otel_platforms | length
       - otel_platform_keys | unique | list | length == otel_platforms | length
       - otel_platforms | map(attribute='publishers', default=[]) | map('length') | select('equalto', 0) | list | length == 0
-      - otel_platforms | map(attribute='publishers', default=[]) | flatten | difference(groups['all']) | length == 0
+      - otel_platforms | map(attribute='publishers', default=[]) | flatten | difference(otel_edges) | length == 0
     fail_msg: >-
       otel_platforms invalide : chaque entrée déclare platform et environment
       en [a-z0-9_], le couple est unique, et publishers liste au moins un
-      hôte de l'inventaire.
+      Edge de otel_edges ({{ otel_edges | join(', ') }}).
     quiet: true
 
-# Un compte par producteur, otel_publisher_<hôte>, avec les topics de ses
+# Un compte par producteur (Edge), otel_publisher_<edge>, avec les topics de ses
 # plateformes. Aucun mot de passe ici, cette liste est affichée par les
-# boucles : il est dérivé là où il sert (kafka-jaas.conf.j2), comme dans
-# group_vars/all.yml.
+# boucles : il est dérivé là où il sert (otel-kafka-acl-verify.yml).
 - name: Déterminer les topics OTel et les comptes des producteurs
   vars:
     otel_signals: [logs, metrics, traces]

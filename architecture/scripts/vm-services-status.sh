@@ -46,9 +46,6 @@ run_remote_status k3s-01 k3s.service elastic-agent.service
 
 run_remote_status elk-01 k3s.service elastic-agent.service
 
-run_remote_status otel-edge-01 \
-  haproxy.service observability-otel-edge.service elastic-agent.service
-
 # Workloads des trois clusters : hub (Argo CD, Crossplane), k3s-01 (services, back-ends,
 # collecteurs) et elk-01 (Elasticsearch, Kibana, Fleet Server).
 for cluster in tools k3s elk; do

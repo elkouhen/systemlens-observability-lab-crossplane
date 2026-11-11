@@ -104,7 +104,7 @@ data:
           - {key: mongodb.instance, value: supermarket-mongodb, action: upsert}
     exporters:
       otlp/edge:
-        endpoint: http://otel-edge-vm.elastic-stack.svc.cluster.local:4317
+        endpoint: http://otel-edge.elastic-stack.svc.cluster.local:4317
         tls:
           insecure: true
         headers:
