@@ -1,0 +1,1 @@
+{"type":"index-pattern","id":"2580464b-1362-496f-8501-6fe9f34ec8f7","attributes":{"title":"traces-apm*,traces-*.otel-*,metrics-apm*,metrics-app.prometheus.0tl-*,metrics-*.otel-*,metrics-k8s-*,logs-apm*,logs-*.otel-*,logs-kubernetes.*,logs-kube-*","timeFieldName":"@timestamp","fields":"[]","fieldFormatMap":"{}","runtimeFieldMap":"{}","typeMeta":"{}"},"references":[]}

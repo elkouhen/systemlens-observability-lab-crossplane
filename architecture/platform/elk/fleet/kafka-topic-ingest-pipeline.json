@@ -1,0 +1,12 @@
+{
+  "description": "Compatibility mapping for the Kafka 1.27.2 Topic dashboard",
+  "processors": [
+    {
+      "rename": {
+        "field": "kafka.topic.topic.name",
+        "target_field": "kafka.topic.name",
+        "ignore_missing": true
+      }
+    }
+  ]
+}

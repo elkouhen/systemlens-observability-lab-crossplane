@@ -1,0 +1,5 @@
+.kube/
+.observability-credentials.env
+.otel-edge-keys.env
+apps/command-center/node_modules/
+apps/command-center/dist/

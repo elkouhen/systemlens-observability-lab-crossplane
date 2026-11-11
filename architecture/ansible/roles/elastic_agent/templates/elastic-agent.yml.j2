@@ -1,0 +1,278 @@
+agent:
+  grpc:
+    port: 6790
+
+{% set is_supermarket_middleware = 'supermarket_middleware_nodes' in group_names %}
+{% set is_otel_backend = 'otel_backend_nodes' in group_names %}
+{% set is_otel_edge = 'otel_edge_nodes' in group_names %}
+{% set internal_telemetry_port = 4320 if is_otel_edge else 4317 %}
+{# Chemin de sortie (ADR-015) : l'Edge déclaré par la VM, ou le Kafka OTel
+   local pour otel_edge = kafka-local (ADR-005). #}
+{% set agent_exporter = 'kafka/backend' if otel_edge == 'kafka-local' else 'otlphttp/edge' %}
+
+extensions:
+  # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/extension/healthcheckextension
+  health_check:
+    endpoint: 127.0.0.1:13136
+  # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/extension/storage/filestorage
+  file_storage:
+    directory: /var/lib/observability/elastic-agent-otel
+    create_directory: true
+{% if fleet_enrollment_token | default('') | length > 0 %}
+  # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/extension/opampextension
+  opamp:
+    server:
+      http:
+        endpoint: http://{{ elk_ip }}:8220/v1/opamp
+        headers:
+          Authorization: ApiKey {{ fleet_enrollment_token }}
+    instance_uid: "{{ opamp_instance_uid }}"
+    agent_description:
+      non_identifying_attributes:
+        elastic.collector.group_name: "SystemLens VM"
+        elastic.collector.group: "systemlens-vm"
+        elastic.display.name: "{{ inventory_hostname }}"
+{% endif %}
+
+receivers:
+  # Documentation : https://github.com/open-telemetry/opentelemetry-collector/tree/main/receiver/otlpreceiver
+  otlp/internal:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:{{ internal_telemetry_port }}
+
+  # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/filelogreceiver
+  filelog/system:
+    include:
+      - /var/log/messages
+      - /var/log/secure
+      - /var/log/*.log
+{% if is_supermarket_middleware or is_otel_backend %}
+      - /var/log/kafka/*.log
+{% endif %}
+{% if is_supermarket_middleware %}
+      - /var/log/mongodb/mongod.log
+      - /var/log/postgresql/*.log
+{% endif %}
+    start_at: end
+    include_file_path: true
+    operators:
+      - type: move
+        from: body
+        to: attributes.message
+
+  # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/hostmetricsreceiver
+  hostmetrics/system:
+    root_path: /
+    collection_interval: 30s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      load:
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      disk:
+      filesystem:
+      network:
+      paging:
+      processes:
+
+{% if is_supermarket_middleware or is_otel_backend %}
+  # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/kafkametricsreceiver
+  kafkametrics/local:
+    brokers:
+      - 127.0.0.1:9092
+    protocol_version: 3.9.0
+{% if is_otel_backend %}
+    auth:
+      sasl:
+        username: "{{ otel_kafka_consumer_username }}"
+        password: "{{ otel_kafka_consumer_password }}"
+        mechanism: SCRAM-SHA-512
+{% endif %}
+    scrapers:
+      - brokers
+      - topics
+      - consumers
+    collection_interval: 60s
+
+{% endif %}
+{% if is_supermarket_middleware %}
+  # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/mongodbreceiver
+  mongodb/supermarket_middleware:
+    hosts:
+      - endpoint: 127.0.0.1:27017
+    username: {{ mongodb_otel_user }}
+    password: {{ mongodb_otel_password }}
+    collection_interval: 60s
+    initial_delay: 5s
+    direct_connection: true
+    tls:
+      insecure: true
+
+  # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/postgresqlreceiver
+  postgresql/supermarket_middleware:
+    endpoint: 127.0.0.1:5432
+    username: {{ postgresql_otel_user }}
+    password: {{ postgresql_otel_password }}
+    databases:
+      - {{ postgresql_database }}
+    collection_interval: 30s
+    initial_delay: 5s
+    metrics:
+      postgresql.blks_hit: {enabled: true}
+      postgresql.blks_read: {enabled: true}
+      postgresql.database.locks: {enabled: true}
+      postgresql.deadlocks: {enabled: true}
+      postgresql.sequential_scans: {enabled: true}
+      postgresql.temp_files: {enabled: true}
+      postgresql.temp.io: {enabled: true}
+      postgresql.tup_deleted: {enabled: true}
+      postgresql.tup_fetched: {enabled: true}
+      postgresql.tup_inserted: {enabled: true}
+      postgresql.tup_returned: {enabled: true}
+      postgresql.tup_updated: {enabled: true}
+      postgresql.wal.delay: {enabled: true}
+      postgresql.function.calls: {enabled: true}
+    events:
+      db.server.query_sample: {enabled: true}
+      db.server.top_query: {enabled: true}
+    query_sample_collection:
+      max_rows_per_query: 100
+    top_query_collection:
+      max_rows_per_query: 100
+      top_n_query: 200
+      max_explain_each_interval: 1000
+      query_plan_cache_size: 1000
+      query_plan_cache_ttl: 1h
+    tls:
+      insecure: true
+{% endif %}
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 300
+    spike_limit_mib: 75
+  batch:
+    timeout: 5s
+    send_batch_size: 256
+  # Plateforme et environnement de la VM (ADR-020) : l'Edge publie dans le
+  # topic de cette plateforme, ou rejette la ressource si elle ne lui est
+  # pas attribuée.
+  resource/agent:
+    attributes:
+      - key: service.name
+        value: elastic-agent-otel
+        action: upsert
+      - key: platform.id
+        value: {{ otel_platform }}
+        action: upsert
+      - key: deployment.environment.name
+        value: {{ otel_environment }}
+        action: upsert
+      - key: host.name
+        value: {{ inventory_hostname }}
+        action: upsert
+  attributes/mongodb:
+    actions:
+      - key: mongodb.instance
+        value: 127.0.0.1:27017
+        action: upsert
+
+exporters:
+{% if agent_exporter == 'otlphttp/edge' %}
+  # L'Edge déclaré par la VM (otel_edge), avec la clé OTEL_EDGE_KEY_<HOST>.
+  # L'Edge publie dans le topic de la plateforme déclarée par la ressource.
+  # L'adresse est ansible_host de l'Edge : node_ip est une extra var de scripts/vm,
+  # globale, qui vaudrait l'adresse de la VM provisionnée.
+  # Documentation : https://github.com/open-telemetry/opentelemetry-collector/tree/main/exporter/otlphttpexporter
+  otlphttp/edge:
+    endpoint: http://{{ hostvars[otel_edge].ansible_host }}:4318
+    headers:
+      Authorization: "Bearer {{ otel_edge_client_key }}"
+{% else %}
+  # Publication directe dans le Kafka OTel local (ADR-005), dans les topics
+  # de la plateforme et de l'environnement de la VM (ADR-015).
+  kafka/backend:
+    brokers: ["127.0.0.1:9092"]
+    auth:
+      sasl:
+        username: "{{ otel_kafka_publisher_username }}"
+        password: "{{ otel_kafka_publisher_password }}"
+        mechanism: SCRAM-SHA-512
+{% for signal in ['traces', 'metrics', 'logs'] %}
+    {{ signal }}:
+      topic: otel-{{ signal }}-{{ otel_platform }}-{{ otel_environment }}
+      encoding: otlp_proto
+{% endfor %}
+{% endif %}
+
+service:
+  extensions: [health_check, file_storage{% if fleet_enrollment_token | default('') | length > 0 %}, opamp{% endif %}]
+  # Télémétrie interne (ADR-013) : niveau normal, export toutes les 30 s,
+  # logs au niveau info (défaut), sans traces. La ressource porte seule
+  # l'identité et le dataset collectortelemetry, ainsi que la plateforme et
+  # l'environnement de la VM, lus par l'Edge (ADR-020).
+  telemetry:
+    metrics:
+      level: normal
+      readers:
+        - periodic:
+            interval: 30000
+            exporter:
+              # Documentation : https://github.com/open-telemetry/opentelemetry-collector/tree/main/exporter/otlpexporter
+              otlp:
+                protocol: grpc
+                endpoint: http://127.0.0.1:{{ internal_telemetry_port }}
+    logs:
+      processors:
+        - batch:
+            exporter:
+              # Documentation : https://github.com/open-telemetry/opentelemetry-collector/tree/main/exporter/otlpexporter
+              otlp:
+                protocol: grpc
+                endpoint: http://127.0.0.1:{{ internal_telemetry_port }}
+    resource:
+      data_stream.dataset: collectortelemetry
+      service.name: elastic-otel-collector
+      service.version: "{{ elastic_agent_version }}"
+      service.instance.id: "{{ opamp_instance_uid | default(inventory_hostname) }}"
+      service.namespace: systemlens-vm
+      host.name: {{ inventory_hostname }}
+      platform.id: {{ otel_platform }}
+      deployment.environment.name: {{ otel_environment }}
+      elastic.collector.group_name: SystemLens VM
+      elastic.collector.group: systemlens-vm
+      elastic.display.name: {{ inventory_hostname }}
+  pipelines:
+    metrics/internal-telemetry:
+      receivers: [otlp/internal]
+      processors: [memory_limiter, batch]
+      exporters: [{{ agent_exporter }}]
+    logs/internal-telemetry:
+      receivers: [otlp/internal]
+      processors: [memory_limiter, batch]
+      exporters: [{{ agent_exporter }}]
+    logs:
+      receivers: [filelog/system]
+      processors: [memory_limiter, resource/agent, batch]
+      exporters: [{{ agent_exporter }}]
+    metrics:
+      receivers: [hostmetrics/system{% if is_supermarket_middleware or is_otel_backend %}, kafkametrics/local{% endif %}{% if is_supermarket_middleware %}, postgresql/supermarket_middleware{% endif %}]
+      processors: [memory_limiter, resource/agent, batch]
+      exporters: [{{ agent_exporter }}]
+{% if is_supermarket_middleware %}
+    metrics/mongodb:
+      receivers: [mongodb/supermarket_middleware]
+      processors: [memory_limiter, resource/agent, attributes/mongodb, batch]
+      exporters: [{{ agent_exporter }}]
+    logs/postgresql:
+      receivers: [postgresql/supermarket_middleware]
+      processors: [memory_limiter, resource/agent, batch]
+      exporters: [{{ agent_exporter }}]
+{% endif %}

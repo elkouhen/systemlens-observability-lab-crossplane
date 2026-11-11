@@ -1,0 +1,48 @@
+# Inventaire Lima : hôtes, groupes et IP privées des 5 VM du lab.
+# ansible_host garde l'IP privée 192.168.33.x (utilisée par les templates) ; la connexion SSH
+# passe par le port local fixe de chaque VM Lima (ssh.localPort dans lima/<vm>.yaml).
+---
+all:
+  children:
+    supermarket_middleware_nodes:
+      hosts:
+        supermarket-middleware-01:
+          ansible_host: 192.168.33.10
+          ansible_port: 2251
+          ansible_ssh_private_key_file: ~/.lima/_config/user
+          node_ip: 192.168.33.10
+    otel_backend_nodes:
+      hosts:
+        otel-backend-01:
+          ansible_host: 192.168.33.20
+          ansible_port: 2252
+          ansible_ssh_private_key_file: ~/.lima/_config/user
+          node_ip: 192.168.33.20
+    otel_edge_nodes:
+      hosts:
+        otel-edge-01:
+          ansible_host: 192.168.33.30
+          ansible_port: 2253
+          ansible_ssh_private_key_file: ~/.lima/_config/user
+          node_ip: 192.168.33.30
+    elk_nodes:
+      hosts:
+        elk-01:
+          ansible_host: 192.168.33.40
+          ansible_port: 2254
+          ansible_ssh_private_key_file: ~/.lima/_config/user
+          node_ip: 192.168.33.40
+    k3s_nodes:
+      hosts:
+        k3s-01:
+          ansible_host: 192.168.33.50
+          ansible_port: 2255
+          ansible_ssh_private_key_file: ~/.lima/_config/user
+          node_ip: 192.168.33.50
+    elastic_agent_nodes:
+      children:
+        k3s_nodes:
+        supermarket_middleware_nodes:
+        otel_backend_nodes:
+        otel_edge_nodes:
+        elk_nodes:

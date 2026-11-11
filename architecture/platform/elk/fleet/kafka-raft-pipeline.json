@@ -1,0 +1,11 @@
+{
+  "description": "Ignore l'attribut Raft absent dans Kafka 3.9 pour préserver le leader.",
+  "processors": [
+    {
+      "script": {
+        "if": "ctx.kafka != null && ctx.kafka.raft != null && ctx.kafka.raft.number_of_voters instanceof String",
+        "source": "ctx.kafka.raft.remove('number_of_voters')"
+      }
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+openapi: 3.0.3
+info:
+  title: API des stocks du supermarché
+  version: v1
+  description: Réservation synchrone du stock du catalogue.
+servers:
+  - url: http://localhost:3001
+paths:
+  /api/health:
+    get:
+      tags: [Stocks]
+      summary: Vérifie la disponibilité du service de stock
+      operationId: health
+      responses:
+        '200':
+          description: Service disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+  /api/reservations:
+    post:
+      tags: [Stocks]
+      summary: Réserve le stock d'une commande
+      operationId: reserve
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderPlaced'
+      responses:
+        '200':
+          description: Stock réservé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResult'
+        '400':
+          description: Quantité invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Produit introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Stock insuffisant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/products/{productId}:
+    get:
+      tags: [Stocks]
+      summary: Retourne le produit et son stock courant
+      operationId: product
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Produit trouvé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '404':
+          description: Produit introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+    OrderPlaced:
+      type: object
+      required: [orderId, productId, quantity, requestedAt]
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          example: PASTA-500G
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          example: 2
+        requestedAt:
+          type: string
+          format: date-time
+    ReservationResult:
+      type: object
+      required: [orderId, productId, productName, quantity, remainingStock, channel, durationMs]
+      properties:
+        orderId:
+          type: string
+        productId:
+          type: string
+        productName:
+          type: string
+        quantity:
+          type: integer
+          format: int32
+        remainingStock:
+          type: integer
+          format: int32
+        channel:
+          type: string
+          example: rest
+        durationMs:
+          type: integer
+          format: int64
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    ProductResponse:
+      type: object
+      required: [id, name, stockQuantity]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        stockQuantity:
+          type: integer
+          format: int32

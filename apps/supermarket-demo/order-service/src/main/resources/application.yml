@@ -1,0 +1,41 @@
+server:
+  port: 3000
+
+order-service:
+  inventory-service-url: http://inventory-service:3001
+  cron: "0 */1 * * * *"
+
+spring:
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:192.168.33.10:9092,192.168.33.11:9092,192.168.33.12:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        linger.ms: 5
+        batch.size: 16384
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    url: /openapi.yaml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        business.kafka.message.processing: true
+      percentiles:
+        http.server.requests: 0.5,0.95,0.99
+        business.kafka.message.processing: 0.5,0.95,0.99
+    enable:
+      kafka: true
+  export:
+    prometheus:
+      enabled: true

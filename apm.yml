@@ -1,0 +1,15 @@
+name: systemlens-observability-lab
+version: 1.0.0
+description: Environnement Kubernetes et Elastic pour la recette d'observabilité
+author: systemlens
+license: MIT
+targets:
+  - codex
+dependencies:
+  apm:
+    - elkouhen/systemlens-skill
+    - github/awesome-copilot/skills/documentation-writer
+  mcp: []
+includes: auto
+scripts:
+  validate: make ci

@@ -1,0 +1,36 @@
+---
+# Cohérence de l'inventaire du lab avec le registre otel_platforms (ADR-017,
+# ADR-020), exécutée par make otel-config-validate et non par le
+# provisionnement. La plateforme déclarée par chaque VM doit être
+# enregistrée, avec son Edge, ou la VM elle-même en kafka-local, parmi ses
+# publishers. Sinon, l'Edge rejetterait ses signaux, ou les ACL Kafka
+# refuseraient ses écritures. Un Edge ne porte pas de table : il sert
+# exactement les plateformes dont il est publisher.
+- name: Vérifier que les plateformes servies sont attribuées à leur producteur
+  vars:
+    otel_registry: >-
+      {{ otel_platforms | map(attribute='publishers')
+         | zip(otel_platform_keys) | list }}
+    otel_vm_hostvars: "{{ groups['all'] | map('extract', hostvars) | selectattr('otel_platform', 'defined') | list }}"
+    otel_served: >-
+      {%- set served = [] -%}
+      {%- for vm in otel_vm_hostvars -%}
+      {%- set _ = served.append({'publisher': vm.inventory_hostname if vm.otel_edge == 'kafka-local' else vm.otel_edge,
+                                 'key': vm.otel_platform ~ '-' ~ vm.otel_environment}) -%}
+      {%- endfor -%}
+      {{ served }}
+    otel_unregistered: >-
+      {%- set missing = [] -%}
+      {%- for item in otel_served -%}
+      {%- set allowed = otel_registry | selectattr('1', 'equalto', item.key) | map(attribute='0') | flatten -%}
+      {%- if item.publisher not in allowed -%}
+      {%- set _ = missing.append(item.publisher ~ ' -> ' ~ item.key) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ missing | unique }}
+  ansible.builtin.assert:
+    that: otel_unregistered | length == 0
+    fail_msg: >-
+      Plateformes déclarées par des VM mais absentes du registre otel_platforms,
+      ou dont le producteur n'est pas dans publishers : {{ otel_unregistered | join(', ') }}.
+    quiet: true

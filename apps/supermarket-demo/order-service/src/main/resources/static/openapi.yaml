@@ -1,0 +1,107 @@
+openapi: 3.0.3
+info:
+  title: API des commandes du supermarché
+  version: v1
+  description: Prise de commandes en caisse et réservation synchrone du stock.
+servers:
+  - url: http://localhost:3000
+paths:
+  /api/health:
+    get:
+      tags: [Commandes]
+      summary: Vérifie la disponibilité du service de commande
+      operationId: health
+      responses:
+        '200':
+          description: Service disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+  /api/orders:
+    post:
+      tags: [Commandes]
+      summary: Passe une commande
+      description: Réserve le stock auprès d'inventory-service.
+      operationId: placeOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          description: Commande réservée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResult'
+        '500':
+          description: Erreur lors de la réservation auprès du service de stock
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/error:
+    get:
+      tags: [Commandes]
+      summary: Déclenche une rupture de stock
+      description: Scénario contrôlé destiné à la démonstration d'observabilité.
+      operationId: triggerOutOfStock
+      responses:
+        '500':
+          description: Rupture de stock propagée par inventory-service
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+    OrderRequest:
+      type: object
+      required: [productId, quantity]
+      properties:
+        productId:
+          type: string
+          example: PASTA-500G
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          example: 2
+    ReservationResult:
+      type: object
+      required: [orderId, productId, productName, quantity, remainingStock, channel, durationMs]
+      properties:
+        orderId:
+          type: string
+        productId:
+          type: string
+        productName:
+          type: string
+        quantity:
+          type: integer
+          format: int32
+        remainingStock:
+          type: integer
+          format: int32
+        channel:
+          type: string
+          example: rest
+        durationMs:
+          type: integer
+          format: int64
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string

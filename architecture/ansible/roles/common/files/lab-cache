@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Cache local des téléchargements du lab (répertoire de l'hôte monté par Lima sur /var/cache/lab,
+# voir lima/base.yaml). Chaque commande lit d'abord le cache, sinon télécharge puis dépose le
+# résultat dans le cache sous un nom temporaire renommé ensuite : les 5 VM provisionnées en
+# parallèle ne voient jamais de fichier partiel. Sans montage (ou cache vide), tout est téléchargé
+# comme avant. La dernière ligne de sortie indique l'origine : present, cache ou network.
+#
+#   lab-cache file <url> <destination> [mode]    fichier (archive, binaire, script)
+#   lab-cache image <référence>                  image Podman (podman load ou pull + save)
+#   lab-cache debs-restore                       paquets .deb du cache vers /var/cache/apt/archives
+#   lab-cache debs-save                          paquets .deb téléchargés par apt vers le cache
+set -euo pipefail
+
+CACHE_ROOT="${LAB_CACHE_ROOT:-/var/cache/lab}"
+LOG=/var/log/lab-cache.log
+
+# Trace de l'origine de chaque élément (present, cache ou network), relue pour vérifier qu'une
+# reconstruction cache chaud ne télécharge rien.
+log() { printf '%s %s\n' "$(date -Is)" "$*" >> "$LOG" 2>/dev/null || true; }
+
+enabled() { mountpoint -q "$CACHE_ROOT" 2>/dev/null || [ -n "${LAB_CACHE_ROOT:-}" ]; }
+
+store() { # store <fichier local> <chemin dans le cache>
+  enabled || return 0
+  local src=$1 dst="$CACHE_ROOT/$2" tmp
+  mkdir -p "$(dirname "$dst")"
+  [ -s "$dst" ] && return 0
+  tmp="$dst.$(hostname).$$.tmp"
+  cp "$src" "$tmp" && mv -f "$tmp" "$dst"
+}
+
+cmd_file() {
+  local url=$1 dest=$2 mode=${3:-0644} name tmp
+  # Le nom porte une empreinte de l'URL : deux versions d'un même fichier (install.sh, k3s-arm64)
+  # ne se confondent jamais.
+  name="files/$(printf '%s' "$url" | sha256sum | cut -c1-12)-$(basename "${url%%\?*}")"
+  if [ -s "$dest" ]; then log "file present $url"; echo present; return; fi
+  mkdir -p "$(dirname "$dest")"
+  if enabled && [ -s "$CACHE_ROOT/$name" ]; then
+    install -m "$mode" "$CACHE_ROOT/$name" "$dest"; log "file cache $url"; echo cache; return
+  fi
+  tmp="$dest.$$.part"
+  curl --fail --silent --show-error --location --retry 5 --retry-delay 10 --output "$tmp" "$url"
+  install -m "$mode" "$tmp" "$dest"; rm -f "$tmp"
+  store "$dest" "$name"
+  log "file network $url"
+  echo network
+}
+
+save_image() { # dépose l'image dans le cache si elle n'y est pas encore
+  local ref=$1 archive=$2 tmp
+  enabled && [ ! -s "$CACHE_ROOT/$archive" ] || return 0
+  mkdir -p "$CACHE_ROOT/podman"
+  tmp="$CACHE_ROOT/$archive.$(hostname).$$.tmp"
+  podman save --quiet --output "$tmp" "$ref" && mv -f "$tmp" "$CACHE_ROOT/$archive"
+}
+
+cmd_image() {
+  local ref=$1 archive
+  archive="podman/$(printf '%s' "$ref" | tr '/:@' '___').tar"
+  if podman image exists "$ref"; then save_image "$ref" "$archive"; log "image present $ref"; echo present; return; fi
+  if enabled && [ -s "$CACHE_ROOT/$archive" ]; then
+    podman load --quiet --input "$CACHE_ROOT/$archive" >/dev/null
+    podman image exists "$ref" && { log "image cache $ref"; echo cache; return; }
+  fi
+  podman pull --quiet "$ref" >/dev/null
+  save_image "$ref" "$archive"
+  log "image network $ref"
+  echo network
+}
+
+cmd_debs_restore() {
+  enabled || { echo network; return; }
+  local n=0 f
+  for f in "$CACHE_ROOT"/apt/*.deb; do
+    [ -e "$f" ] || continue
+    [ -e "/var/cache/apt/archives/$(basename "$f")" ] || { cp "$f" /var/cache/apt/archives/; n=$((n + 1)); }
+  done
+  log "debs restored $n"; echo "restored $n"
+}
+
+cmd_debs_save() {
+  enabled || return 0
+  local n=0 f
+  for f in /var/cache/apt/archives/*.deb; do
+    [ -e "$f" ] || continue
+    [ -s "$CACHE_ROOT/apt/$(basename "$f")" ] || { store "$f" "apt/$(basename "$f")"; n=$((n + 1)); }
+  done
+  log "debs saved $n"; echo "saved $n"
+}
+
+case "${1:-}" in
+  file) shift; cmd_file "$@";;
+  image) shift; cmd_image "$@";;
+  debs-restore) cmd_debs_restore;;
+  debs-save) cmd_debs_save;;
+  *) echo "usage : lab-cache file|image|debs-restore|debs-save" >&2; exit 2;;
+esac

@@ -1,0 +1,78 @@
+---
+# Rend localement les configurations des collecteurs du chemin de données
+# (Edge, backend, agents EDOT des VM) depuis l'inventaire, sans toucher aux
+# VM, pour les valider avec `elastic-otel-collector validate`
+# (make otel-config-validate). Les secrets absents prennent une valeur
+# factice : seule la structure est validée.
+- name: Rendre les configurations OTel des VM
+  hosts: all
+  gather_facts: false
+  connection: local
+  vars:
+    otel_render_dir: "{{ lookup('env', 'OTEL_RENDER_DIR') | default('/tmp/otel-render', true) }}"
+    otel_elasticsearch_api_key: "{{ lookup('env', 'OTEL_ELASTICSEARCH_API_KEY') | default('render', true) }}"
+    otel_kafka_secret: "{{ lookup('env', 'KAFKA_OTEL_PUBLISHER_PASSWORD') | default('render', true) }}"
+    otel_kafka_consumer_password: "{{ lookup('env', 'KAFKA_OTEL_CONSUMER_PASSWORD') | default('render', true) }}"
+    otel_edge_client_key: "{{ lookup('env', otel_edge_client_key_env) | default('render', true) }}"
+    otel_edge_key_kubernetes: "{{ lookup('env', 'OTEL_EDGE_KEY_KUBERNETES') | default('render', true) }}"
+    otel_edge_key_kubernetes_cluster: "{{ lookup('env', 'OTEL_EDGE_KEY_KUBERNETES_CLUSTER') | default('render', true) }}"
+    postgresql_otel_password: render
+    mongodb_otel_password: render
+    otel_kafka_broker: "127.0.0.1:9092"
+    elasticsearch_url: "http://{{ elk_ip }}:9200"
+  tasks:
+    - name: Créer le répertoire de rendu
+      ansible.builtin.file:
+        path: "{{ otel_render_dir }}"
+        state: directory
+        mode: '0755'
+      run_once: true
+
+    - name: Rendre la configuration de l'agent EDOT
+      ansible.builtin.template:
+        src: roles/elastic_agent/templates/elastic-agent.yml.j2
+        dest: "{{ otel_render_dir }}/elastic-agent-{{ inventory_hostname }}.yaml"
+        mode: '0600'
+      when: inventory_hostname in groups.get('elastic_agent_nodes', [])
+
+    - name: Vérifier les plateformes servies par le Collecteur EDOT Edge
+      ansible.builtin.include_role:
+        name: otel_edge
+        tasks_from: platforms.yml
+      when: inventory_hostname in groups.get('otel_edge_nodes', [])
+
+    - name: Rendre la configuration et les jetons du Collecteur EDOT Edge
+      ansible.builtin.template:
+        src: "roles/otel_edge/templates/{{ item.src }}"
+        dest: "{{ otel_render_dir }}/{{ item.dest }}"
+        mode: '0600'
+      loop:
+        - {src: otel-edge.yaml.j2, dest: "otel-edge-{{ inventory_hostname }}.yaml"}
+        - {src: otel-edge.tokens.j2, dest: "otel-edge-{{ inventory_hostname }}.tokens"}
+      when: inventory_hostname in groups.get('otel_edge_nodes', [])
+
+    - name: Vérifier la liste des plateformes et en déduire les topics
+      ansible.builtin.include_role:
+        name: otel_backend
+        tasks_from: platforms.yml
+      when: inventory_hostname in groups.get('otel_backend_nodes', [])
+
+    - name: Vérifier que les VM restent dans le registre du backend
+      ansible.builtin.include_role:
+        name: otel_backend
+        tasks_from: inventory-check.yml
+      when: inventory_hostname in groups.get('otel_backend_nodes', [])
+
+    - name: Rendre la configuration du collecteur backend OTEL
+      ansible.builtin.template:
+        src: roles/otel_backend/templates/otel-backend.yaml.j2
+        dest: "{{ otel_render_dir }}/otel-backend-{{ inventory_hostname }}.yaml"
+        mode: '0600'
+      when: inventory_hostname in groups.get('otel_backend_nodes', [])
+
+    - name: Écrire la liste des topics OTel attendus
+      ansible.builtin.copy:
+        content: "{{ otel_topics | join('\n') }}\n"
+        dest: "{{ otel_render_dir }}/otel-topics.txt"
+        mode: '0644'
+      when: inventory_hostname in groups.get('otel_backend_nodes', [])

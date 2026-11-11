@@ -1,6 +1,6 @@
 # lab d’observabilité Elastic
 
-Ce dépôt fournit un environnement Kubernetes et Vagrant pour observer une
+Ce dépôt fournit un environnement Kubernetes et des VM Lima pour observer une
 application Java avec Elastic, OpenTelemetry, Kafka, MongoDB et PostgreSQL.
 L’architecture active est l’architecture « Hybride Fleet ».
 

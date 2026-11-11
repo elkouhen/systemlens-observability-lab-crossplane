@@ -1,0 +1,32 @@
+# Cache des paquets Crossplane (providers, fonctions) dans le cache local de l'hôte, monté par Lima
+# sur k3s-01 (/var/cache/lab) : conservé d'une reconstruction à l'autre. Appliqué avant le chart
+# Helm (packageCache.pvc), voir make crossplane-install.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: crossplane-package-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: crossplane-system
+    name: crossplane-package-cache
+  hostPath:
+    path: /var/cache/lab/crossplane-packages
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: crossplane-package-cache
+  namespace: crossplane-system
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ""
+  volumeName: crossplane-package-cache
+  resources:
+    requests:
+      storage: 1Gi

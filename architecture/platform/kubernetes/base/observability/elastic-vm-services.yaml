@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-vm
+  namespace: elastic-stack
+spec:
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+---
+# Endpoints (et non EndpointSlice) : le Traefik 2.11 embarqué par k3s ne lit
+# que les Endpoints pour résoudre les backends des IngressRoute. Kubernetes en
+# dérive automatiquement l'EndpointSlice utilisée par kube-proxy.
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: elasticsearch-vm
+  namespace: elastic-stack
+subsets:
+  - addresses:
+      - ip: 192.168.33.40
+    ports:
+      - name: http
+        port: 9200
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-edge-vm
+  namespace: elastic-stack
+spec:
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: otel-edge-vm-1
+  namespace: elastic-stack
+  labels:
+    kubernetes.io/service-name: otel-edge-vm
+addressType: IPv4
+ports:
+  - name: otlp-grpc
+    port: 4317
+  - name: otlp-http
+    port: 4318
+endpoints:
+  - addresses: [192.168.33.30]
+    conditions:
+      ready: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana-vm
+  namespace: elastic-stack
+spec:
+  ports:
+    - name: http
+      port: 5601
+      targetPort: 5601
+---
+# Endpoints (et non EndpointSlice) : le Traefik 2.11 embarqué par k3s ne lit
+# que les Endpoints pour résoudre les backends des IngressRoute. Kubernetes en
+# dérive automatiquement l'EndpointSlice utilisée par kube-proxy.
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: kibana-vm
+  namespace: elastic-stack
+subsets:
+  - addresses:
+      - ip: 192.168.33.40
+    ports:
+      - name: http
+        port: 5601

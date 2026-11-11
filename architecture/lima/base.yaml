@@ -1,0 +1,38 @@
+# Socle commun des 5 VM Lima du lab : image Ubuntu 24.04, réseau partagé et IP privée fixe.
+# Inclus par chaque lima/<vm>.yaml ; seuls les rôles Ansible configurent ensuite les services.
+base: template:ubuntu-24.04
+vmType: vz
+cpus: 2
+# Utilisateur des VM, repris par l'inventaire Ansible (ansible_user: lab).
+user:
+  name: lab
+# Réseau partagé entre VM (user-v2) : sortie Internet par l'hôte, compatible proxy TLS d'entreprise.
+# L'IP fixe 192.168.33.x du lab est ajoutée en adresse secondaire par le provisionnement ci-dessous.
+networks:
+  - lima: user-v2
+# Cache local des téléchargements, partagé par les 5 VM et conservé par `make vms-destroy`
+# (make cache-status, make cache-clean). Les rôles Ansible y lisent fichiers, paquets et images
+# avant de les télécharger, et y déposent ce qu'ils ont téléchargé (nom temporaire puis renommage).
+mountType: virtiofs
+mounts:
+  - location: "~/.cache/poc-crossplane-lab"
+    mountPoint: /var/cache/lab
+    writable: true
+containerd:
+  system: false
+  user: false
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      hostnamectl set-hostname "{{.Param.HOSTNAME}}"
+      cat > /etc/netplan/60-lab-private-ip.yaml <<NETPLAN
+      network:
+        version: 2
+        ethernets:
+          eth0:
+            addresses: [{{.Param.NODE_IP}}/24]
+      NETPLAN
+      chmod 600 /etc/netplan/60-lab-private-ip.yaml
+      netplan apply

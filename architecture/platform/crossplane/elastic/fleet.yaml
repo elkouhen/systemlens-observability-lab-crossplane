@@ -1,0 +1,78 @@
+# Fleet déclaré : packages d'intégration, hôte Fleet Server et agent policies.
+# Remplace la préconfiguration xpack.fleet.* de kibana.yml et les installations de packages de
+# platform/elk/scripts/bootstrap-fleet-policies.sh. Versions identiques au lab (Makefile).
+apiVersion: tf.m.upbound.io/v1beta1
+kind: Workspace
+metadata:
+  name: fleet
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: elastic}
+  forProvider:
+    source: Inline
+    module: |
+      locals {
+        # Packages conservés pour leurs assets Kibana ; aucune package policy ne les attache
+        # aux agents EDOT standalone (sauf fleet_server).
+        packages = {
+          fleet_server                      = "1.2.0"
+          system                            = "1.20.4"
+          mongodb                           = "1.5.0"
+          kafka                             = "1.3.0"
+          postgresql                        = "1.5.0"
+          kubernetes_otel                   = "2.6.1"
+          kafka_otel                        = "0.3.1"
+          postgresql_otel                   = "0.5.0"
+          mongodb_otel                      = "0.3.1"
+          system_otel                       = "0.3.0"
+          otel_collector_internal_telemetry = "1.2.3"
+        }
+      }
+
+      resource "elasticstack_fleet_integration" "package" {
+        for_each     = local.packages
+        name         = each.key
+        version      = each.value
+        # Versions du lab, antérieures aux dernières du registre : Kibana 9.5 les refuse
+        # (« out-of-date ») sans force ; allow_outdated_version exige Elastic 9.6.
+        force        = true
+        skip_destroy = true
+      }
+
+      resource "elasticstack_fleet_server_host" "default" {
+        host_id = "fleet-default-fleet-server-host"
+        name    = "Fleet Server elk-01"
+        hosts   = ["http://fleet.observability.test:8220"]
+        default = true
+      }
+
+      resource "elasticstack_fleet_agent_policy" "fleet_server" {
+        policy_id            = "eck-fleet-server"
+        name                 = "Fleet Server"
+        namespace            = "default"
+        monitor_logs         = true
+        monitor_metrics      = true
+        fleet_server_host_id = elasticstack_fleet_server_host.default.host_id
+      }
+
+      resource "elasticstack_fleet_integration_policy" "fleet_server" {
+        policy_id           = "fleet-server-1"
+        name                = "fleet-server-1"
+        namespace           = "default"
+        agent_policy_id     = elasticstack_fleet_agent_policy.fleet_server.policy_id
+        integration_name    = "fleet_server"
+        integration_version = elasticstack_fleet_integration.package["fleet_server"].version
+        inputs = {
+          "fleet_server-fleet-server" = { enabled = true }
+        }
+      }
+
+      # Les agents VM restent standalone : cette policy, sans package policy de collecte,
+      # sert uniquement à leur enregistrement OpAMP.
+      resource "elasticstack_fleet_agent_policy" "otel_fleet" {
+        policy_id       = "otel-fleet"
+        name            = "OTel standalone — supervision OpAMP"
+        namespace       = "default"
+        monitor_logs    = true
+        monitor_metrics = true
+      }

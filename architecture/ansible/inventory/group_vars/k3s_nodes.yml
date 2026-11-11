@@ -1,0 +1,11 @@
+---
+# Rattachement des VM du groupe (ADR-015) : plateforme, environnement et
+# Edge cible. otel_edge désigne un hôte de otel_edge_nodes, ou kafka-local
+# pour l'agent qui publie directement dans le Kafka OTel local (ADR-005).
+otel_platform: k3s
+otel_environment: homologation
+otel_edge: otel-edge-01
+firewall_tcp_ports: [6443, 10250]
+firewall_udp_ports: [8472]
+firewall_trusted_sources: [10.42.0.0/16]
+middleware_credentials_required: false

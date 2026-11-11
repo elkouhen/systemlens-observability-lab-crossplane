@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# Pilotage des 5 VM Lima du lab (lima/<vm>.yaml) et de leur provisionnement Ansible.
+#
+#   vm up [--no-provision] [--parallel] [vm...]   crée ou démarre ; provisionne les VM créées
+#   vm provision <vm> [--playbook fleet-agent]    rejoue ansible/site.yml (ou fleet-agent.yml)
+#   vm shell <vm> ['<commande>']                  shell ou commande dans la VM (stdin transmis)
+#   vm ssh-config <vm>                            configuration SSH de la VM (Host, Port, User…)
+#   vm state <vm>                                 Running, Stopped ou Absent
+#   vm status [vm...]                             état de chaque VM
+#   vm stop [vm...] | vm restart [vm...]          arrêt, ou arrêt puis démarrage sans provisionnement
+#   vm delete [vm...]                             suppression des VM et de leurs disques
+#
+# Sans nom de VM, les commandes portent sur les 5 VM du lab.
+set -euo pipefail
+
+ARCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIMA_DIR="$ARCH_ROOT/lima"
+INVENTORY="$ARCH_ROOT/ansible/inventory/lima.yml"
+ALL_VMS=(supermarket-middleware-01 otel-backend-01 otel-edge-01 elk-01 k3s-01)
+
+die() { echo "vm: $*" >&2; exit 1; }
+exists() { limactl list -q 2>/dev/null | grep -qx "$1"; }
+running() { [ "$(limactl list --format '{{.Status}}' "$1" 2>/dev/null)" = "Running" ]; }
+vm_names() { # filtre les options, valide les noms ; défaut = toutes les VM
+  local out=() a
+  for a in "$@"; do
+    case "$a" in -*) ;; *) [ -f "$LIMA_DIR/$a.yaml" ] || die "VM inconnue : $a"; out+=("$a");; esac
+  done
+  [ ${#out[@]} -eq 0 ] && out=("${ALL_VMS[@]}")
+  printf '%s\n' "${out[@]}"
+}
+
+# Variables Ansible propres à chaque VM ; les secrets sont lus dans l'environnement, jamais versionnés.
+extra_vars_file() {
+  local node=$1 ip f
+  ip=$(awk '/NODE_IP:/ {print $2}' "$LIMA_DIR/$node.yaml")
+  f=$(mktemp "${TMPDIR:-/tmp}/lab-extra-vars.XXXXXX")
+  chmod 600 "$f"
+  local ca=""
+  if [ -n "${ZSCALER_CA_CERT:-}" ]; then
+    [ -f "$ZSCALER_CA_CERT" ] || die "ZSCALER_CA_CERT défini mais introuvable : $ZSCALER_CA_CERT"
+    ca=$(cat "$ZSCALER_CA_CERT")
+  fi
+  local pg="${POSTGRESQL_PASSWORD:-password}"
+  NODE_IP="$ip" PG="$pg" CA="$ca" python3 - > "$f" <<'PY'
+import json, os
+e = os.environ
+print(json.dumps({
+    "node_ip": e["NODE_IP"],
+    "kafka_controller_voters": "1@192.168.33.10:9093",
+    "postgresql_password": e["PG"],
+    "mongodb_password": e.get("MONGODB_PASSWORD") or e["PG"],
+    "otel_elasticsearch_api_key": e.get("OTEL_ELASTICSEARCH_API_KEY", ""),
+    "elastic_password": e.get("ELASTIC_PASSWORD") or "password",
+    "fleet_enrollment_token": e.get("FLEET_ENROLLMENT_TOKEN", ""),
+    "otel_kafka_secret": e.get("KAFKA_OTEL_PUBLISHER_PASSWORD", ""),
+    "otel_kafka_consumer_password": e.get("KAFKA_OTEL_CONSUMER_PASSWORD", ""),
+    "zscaler_ca_cert_content": e["CA"],
+    "otel_edge_key_kubernetes": e.get("OTEL_EDGE_KEY_KUBERNETES", ""),
+    "otel_edge_key_kubernetes_cluster": e.get("OTEL_EDGE_KEY_KUBERNETES_CLUSTER", ""),
+}))
+PY
+  echo "$f"
+}
+
+provision() { # provision <vm> [--playbook site|fleet-agent]
+  local node="" playbook="site"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --playbook) playbook=$2; shift 2;;
+      --playbook=*) playbook=${1#*=}; shift;;
+      -*) die "option inconnue : $1";;
+      *) node=$1; shift;;
+    esac
+  done
+  [ -n "$node" ] || die "provision : nom de VM requis"
+  playbook=${playbook%.yml}
+  case "$playbook" in site|fleet-agent) ;; *) die "playbook inconnu : $playbook";; esac
+  local vars; vars=$(extra_vars_file "$node")
+  trap 'rm -f "$vars"' RETURN
+  ( cd "$ARCH_ROOT" && ANSIBLE_LOCAL_TEMP=/tmp ansible-playbook -i "$INVENTORY" "ansible/$playbook.yml" --limit "$node" -e "@$vars" )
+}
+
+up() {
+  local no_provision=false parallel=false a
+  for a in "$@"; do case "$a" in --no-provision) no_provision=true;; --parallel) parallel=true;; esac; done
+  mapfile -t vms < <(vm_names "$@")
+  local logdir="$ARCH_ROOT/.lima-logs"; mkdir -p "$logdir"
+  # Cache local des téléchargements, monté dans chaque VM (lima/base.yaml).
+  mkdir -p "$HOME/.cache/poc-crossplane-lab"
+  local created=() pids=() vm
+  for vm in "${vms[@]}"; do
+    if exists "$vm"; then
+      running "$vm" && { echo "==> $vm : déjà démarrée"; continue; }
+      echo "==> $vm : démarrage (journal $logdir/$vm.log)"
+      limactl start --tty=false --timeout 20m "$vm" > "$logdir/$vm.log" 2>&1 &
+    else
+      echo "==> $vm : création (journal $logdir/$vm.log)"
+      created+=("$vm")
+      # Juste après une suppression, le réseau Lima garde parfois quelques secondes le port SSH
+      # local de l'ancienne instance : attendre qu'il se libère.
+      local port n=0
+      port=$(awk '/localPort:/ {print $2}' "$LIMA_DIR/$vm.yaml")
+      while [ -n "$port" ] && nc -z 127.0.0.1 "$port" 2>/dev/null && [ $n -lt 30 ]; do sleep 2; n=$((n + 1)); done
+      limactl start --tty=false --timeout 20m --name "$vm" "$LIMA_DIR/$vm.yaml" > "$logdir/$vm.log" 2>&1 &
+    fi
+    pids+=($!)
+    $parallel || { wait "${pids[-1]}" || { tail -n 30 "$logdir/$vm.log"; die "échec de $vm"; }; }
+  done
+  local rc=0 p
+  for p in "${pids[@]}"; do wait "$p" || rc=1; done
+  [ $rc -eq 0 ] || { tail -n 30 "$logdir"/*.log; die "échec du démarrage d'une VM"; }
+  # Provisionnement automatique des seules VM créées par cet appel.
+  if ! $no_provision; then
+    for vm in "${created[@]}"; do provision "$vm"; done
+  fi
+}
+
+shell_cmd() { # shell <vm> ['<commande>']
+  local node=${1:-}; [ -n "$node" ] || die "shell : nom de VM requis"; shift
+  [ -f "$LIMA_DIR/$node.yaml" ] || die "VM inconnue : $node"
+  if [ $# -eq 0 ]; then exec limactl shell --workdir / "$node"; fi
+  exec limactl shell --workdir / "$node" bash -c "$*"
+}
+
+ssh_config() {
+  local node=${1:-}; [ -n "$node" ] || die "ssh-config : nom de VM requis"
+  local f="$HOME/.lima/$node/ssh.config"
+  [ -f "$f" ] || die "VM $node non créée"
+  awk -v n="$node" '
+    /^Host / {print "Host " n; next}
+    {gsub(/"/, ""); print}' "$f"
+}
+
+state() {
+  local node=${1:-}; [ -n "$node" ] || die "state : nom de VM requis"
+  local st; st=$(limactl list --format '{{.Status}}' "$node" 2>/dev/null || true)
+  echo "${st:-Absent}"
+}
+
+status() {
+  mapfile -t vms < <(vm_names "$@")
+  local vm
+  for vm in "${vms[@]}"; do printf '%-27s %s\n' "$vm" "$(state "$vm")"; done
+}
+
+delete() {
+  mapfile -t vms < <(vm_names "$@")
+  local vm
+  for vm in "${vms[@]}"; do exists "$vm" && limactl delete -f "$vm" || true; done
+}
+
+stop() {
+  mapfile -t vms < <(vm_names "$@")
+  local vm
+  for vm in "${vms[@]}"; do running "$vm" && limactl stop "$vm" || true; done
+}
+
+restart() { stop "$@"; up --no-provision "$@"; }
+
+cmd=${1:-}; [ $# -gt 0 ] && shift
+case "$cmd" in
+  up) up "$@";;
+  provision) provision "$@";;
+  shell) shell_cmd "$@";;
+  ssh-config) ssh_config "$@";;
+  state) state "$@";;
+  status) status "$@";;
+  stop) stop "$@";;
+  restart) restart "$@";;
+  delete) delete "$@";;
+  *) die "commande inconnue : ${cmd:-<vide>} (up, provision, shell, ssh-config, state, status, stop, restart, delete)";;
+esac

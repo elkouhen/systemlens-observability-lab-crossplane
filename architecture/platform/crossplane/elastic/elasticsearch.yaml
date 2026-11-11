@@ -1,0 +1,115 @@
+# Configuration Elasticsearch de elk-01, déclarée (provider Terraform elastic/elasticstack).
+# Remplace : platform/elk/scripts/retention.py (politique et templates), sync-fleet-policies.sh
+# (pipelines @custom) et la cible make otel-elasticsearch-credentials-apply (clé API OTel).
+# Les fichiers JSON versionnés (platform/elk/ilm, platform/elk/fleet) sont passés tels quels via
+# le ConfigMap elastic-assets, généré par scripts/assets.sh.
+apiVersion: tf.m.upbound.io/v1beta1
+kind: Workspace
+metadata:
+  name: elasticsearch
+  namespace: elastic-stack
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: elastic}
+  # La clé API du collecteur OTel est publiée dans le Secret attendu par le lab.
+  writeConnectionSecretToRef:
+    name: otel-elasticsearch-credentials
+  forProvider:
+    source: Inline
+    varFiles:
+      - source: ConfigMapKey
+        configMapKeyRef: {name: elastic-assets, key: elasticsearch.tfvars.json}
+        format: JSON
+    module: |
+      variable "retention" { type = any }
+      variable "kafka_raft_pipeline" { type = any }
+      variable "kafka_topic_pipeline" { type = any }
+
+      # ---------- Rétention (ILM) ----------
+      locals {
+        phases = var.retention.policy.phases
+      }
+      resource "elasticstack_elasticsearch_index_lifecycle" "telemetry" {
+        name = var.retention.policy_name
+        hot {
+          min_age = local.phases.hot.min_age
+          rollover {
+            max_age                = local.phases.hot.actions.rollover.max_age
+            max_primary_shard_size = local.phases.hot.actions.rollover.max_primary_shard_size
+          }
+        }
+        delete {
+          min_age = local.phases.delete.min_age
+          delete {
+            delete_searchable_snapshot = local.phases.delete.actions.delete.delete_searchable_snapshot
+          }
+        }
+      }
+
+      # Composants @custom référencés par les index templates logs/metrics/traces intégrés
+      resource "elasticstack_elasticsearch_component_template" "custom" {
+        for_each = toset(["logs", "metrics", "traces"])
+        name     = "${each.key}@custom"
+        template {
+          settings = jsonencode({
+            index = {
+              lifecycle = {
+                name       = elasticstack_elasticsearch_index_lifecycle.telemetry.name
+                prefer_ilm = "true"
+              }
+            }
+          })
+        }
+      }
+
+      # ---------- Pipelines d'ingestion @custom des intégrations Kafka et MongoDB ----------
+      locals {
+        kafka_service_address = jsonencode({ set = {
+          tag = "set-kafka-service-address", field = "service.address",
+          value = "{{{host.name}}}", override = true
+        } })
+        mongodb_service_address = jsonencode({ set = {
+          tag   = "set-mongodb-local-service-address", field = "service.address",
+          value = "{{{host.name}}}", override = true,
+          if    = "ctx.service != null && (ctx.service.address == 'mongodb://localhost:27017' || ctx.service.address == 'mongodb://127.0.0.1:27017')"
+        } })
+        kafka_versioned = {
+          raft  = var.kafka_raft_pipeline
+          topic = var.kafka_topic_pipeline
+        }
+      }
+
+      resource "elasticstack_elasticsearch_ingest_pipeline" "kafka" {
+        for_each    = toset(["controller", "jvm", "network", "log_manager", "replica_manager", "topic", "raft"])
+        name        = "metrics-kafka.${each.key}@custom"
+        description = try(local.kafka_versioned[each.key].description, "Kafka custom processors")
+        processors = concat(
+          [for p in try(local.kafka_versioned[each.key].processors, []) : jsonencode(p)],
+          [local.kafka_service_address],
+        )
+      }
+
+      resource "elasticstack_elasticsearch_ingest_pipeline" "mongodb" {
+        for_each    = toset(["collstats", "dbstats", "metrics", "replstatus", "status"])
+        name        = "metrics-mongodb.${each.key}@custom"
+        description = "MongoDB custom processors"
+        processors  = [local.mongodb_service_address]
+      }
+
+      # ---------- Clé API du collecteur OTel backend ----------
+      resource "elasticstack_elasticsearch_security_api_key" "otel_collector_writer" {
+        name = "otel-collector-writer"
+        role_descriptors = jsonencode({
+          otel_writer = {
+            cluster = ["monitor"]
+            indices = [{
+              names      = ["traces-*", "metrics-*", "logs-*"]
+              privileges = ["auto_configure", "create_doc", "view_index_metadata"]
+            }]
+          }
+        })
+      }
+
+      output "api-key" {
+        value     = elasticstack_elasticsearch_security_api_key.otel_collector_writer.encoded
+        sensitive = true
+      }

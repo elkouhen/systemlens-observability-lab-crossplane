@@ -1,0 +1,213 @@
+---
+- name: Autoriser le collecteur backend OTEL à écrire son file_storage
+  # L'image EDOT s'exécute avec elastic-agent (UID/GID 1000). La propriété
+  # est appliquée récursivement afin de reprendre les files d'attente déjà
+  # persistées par la distribution précédente (contrib, UID 10001).
+  ansible.builtin.file:
+    path: /var/lib/observability/otel-backend
+    state: directory
+    owner: '1000'
+    group: '1000'
+    mode: 'u=rwX,g=rX,o='
+    recurse: true
+
+- name: Créer les répertoires du broker Kafka OTel
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: /var/log/kafka, mode: '0777'}
+
+- name: Télécharger l'agent Jolokia du broker Kafka OTel (cache local d'abord)
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/lab-cache
+      - file
+      - https://repo1.maven.org/maven2/org/jolokia/jolokia-agent-jvm/2.2.0/jolokia-agent-jvm-2.2.0-javaagent.jar
+      - /opt/observability/jolokia-agent.jar
+  register: jolokia_download
+  changed_when: jolokia_download.stdout_lines[-1] != 'present'
+
+- name: Vérifier les identifiants Kafka OTel de publication et consommation
+  ansible.builtin.assert:
+    that:
+      - otel_kafka_secret | default('') | length > 0
+      - otel_kafka_consumer_password | default('') | length > 0
+    fail_msg: "Définir KAFKA_OTEL_PUBLISHER_PASSWORD et KAFKA_OTEL_CONSUMER_PASSWORD hors Git."
+    quiet: true
+
+- name: Déployer la configuration JAAS du broker Kafka OTel
+  ansible.builtin.template:
+    src: kafka-jaas.conf.j2
+    dest: /etc/observability/otel-kafka-jaas.conf
+    # Le conteneur Kafka s'exécute avec l'utilisateur non-root appuser (uid 1000).
+    # Le fichier doit donc être lisible après son montage en lecture seule,
+    # sans être exposé aux autres utilisateurs de la VM.
+    group: '1000'
+    mode: '0640'
+  register: otel_kafka_jaas
+  no_log: true
+
+- name: Déployer la configuration client Kafka OTel pour les diagnostics
+  ansible.builtin.template:
+    src: kafka-client.properties.j2
+    dest: /etc/observability/otel-kafka-client.properties
+    # Le script Kafka embarqué dans le conteneur s'exécute également avec uid 1000.
+    group: '1000'
+    mode: '0640'
+  register: otel_kafka_client
+  no_log: true
+
+- name: Déployer le broker Kafka dédié aux signaux OTel
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/kafka.container.j2"
+    dest: /etc/containers/systemd/observability-otel-kafka.container
+    mode: '0644'
+  register: otel_kafka_template
+
+# Images chargées depuis le cache local si possible (lab-cache), sinon tirées puis sauvegardées.
+- name: Préparer les images du backend OTel
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/lab-cache, image, "{{ item }}"]
+  loop:
+    - docker.io/apache/kafka:4.4.0
+    - docker.elastic.co/elastic-agent/elastic-otel-collector:{{ elastic_agent_version }}
+  register: otel_backend_images
+  changed_when: otel_backend_images.stdout != 'present'
+  retries: 3
+  delay: 10
+  until: otel_backend_images.rc == 0
+
+- name: Démarrer le broker Kafka OTel
+  ansible.builtin.systemd_service:
+    name: observability-otel-kafka.service
+    daemon_reload: true
+    state: restarted
+  when: otel_kafka_template.changed or otel_kafka_jaas.changed or otel_kafka_client.changed
+
+- name: Recharger systemd après le déploiement du broker Kafka OTel
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: S'assurer que le broker Kafka OTel est actif
+  ansible.builtin.systemd_service:
+    name: observability-otel-kafka.service
+    state: started
+
+- name: Attendre la disponibilité de Kafka OTel
+  ansible.builtin.command: >-
+    podman exec --env KAFKA_OPTS= observability-otel-kafka
+    /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092
+    --command-config /opt/kafka/config/otel-kafka-client.properties --list
+  register: otel_kafka_ready
+  changed_when: false
+  retries: 30
+  delay: 3
+  until: otel_kafka_ready.rc == 0
+
+# Topics par plateforme (ADR-015), comptes SCRAM et ACL (ADR-017) : déclarés dans
+# platform/crossplane (OtelPlatform, accounts.yaml) et réconciliés par Crossplane.
+
+- name: Arrêter l’ancien Gateway OTEL du backend
+  ansible.builtin.systemd_service:
+    name: observability-otel-gateway.service
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Retirer l’ancienne unité Gateway OTEL du backend
+  ansible.builtin.file:
+    path: /etc/containers/systemd/observability-otel-gateway.container
+    state: absent
+
+- name: Arrêter l’ancien service exporteur Kafka OTel
+  ansible.builtin.systemd_service:
+    name: observability-otel-kafka-exporter.service
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Retirer l’ancienne unité exporteur Kafka OTel
+  ansible.builtin.file:
+    path: /etc/containers/systemd/observability-otel-kafka-exporter.container
+    state: absent
+
+- name: Déployer la configuration du collecteur backend OTEL
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/otel-backend.yaml.j2"
+    dest: /etc/observability/otel-backend.yaml
+    mode: '0644'
+  vars:
+    otel_kafka_broker: "127.0.0.1:9092"
+    elasticsearch_url: "http://{{ elk_ip }}:9200"
+
+# Clé API Elasticsearch du collecteur (OTEL_ELASTICSEARCH_API_KEY). Elle
+# n'existe qu'après le déploiement d'Elasticsearch : au premier make vms-up,
+# le collecteur n'est pas installé et make deploy le termine
+# (otel-backend-vm-provision). Sans clé, un otel-backend.env existant est
+# conservé : le réécrire avec une clé vide ferait échouer chaque export
+# Elasticsearch en 401.
+- name: Lire les identifiants déjà déployés du collecteur backend OTEL
+  ansible.builtin.stat:
+    path: /etc/observability/otel-backend.env
+  register: otel_backend_env
+
+- name: Déterminer si le collecteur backend OTEL peut être déployé
+  ansible.builtin.set_fact:
+    otel_backend_collector_ready: "{{ otel_elasticsearch_api_key | length > 0 or otel_backend_env.stat.exists }}"
+
+- name: Signaler le report du collecteur backend OTEL
+  ansible.builtin.debug:
+    msg: >-
+      Clé API Elasticsearch absente au premier provisionnement : le collecteur
+      backend OTel sera déployé par make deploy (otel-backend-vm-provision).
+  when: not otel_backend_collector_ready
+
+- name: Déployer les identifiants du collecteur backend OTEL
+  ansible.builtin.copy:
+    content: |
+      ELASTICSEARCH_API_KEY={{ otel_elasticsearch_api_key }}
+      OTEL_KAFKA_CONSUMER_USERNAME={{ otel_kafka_consumer_username }}
+      OTEL_KAFKA_CONSUMER_PASSWORD={{ otel_kafka_consumer_password }}
+    dest: /etc/observability/otel-backend.env
+    mode: '0600'
+  when: otel_elasticsearch_api_key | length > 0
+  no_log: true
+
+- name: Déployer l'unité du collecteur backend OTEL
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/{{ item.template }}.container.j2"
+    dest: "/etc/containers/systemd/{{ item.unit }}.container"
+    mode: '0644'
+  loop:
+    - {template: otel-backend, unit: observability-otel-backend}
+  when: otel_backend_collector_ready
+
+- name: Recharger systemd pour les unités OTEL backend
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Vérifier la génération des unités Quadlet backend OTel
+  ansible.builtin.command:
+    argv: ["{{ podman_system_generator_path }}", --dryrun]
+  environment:
+    QUADLET_UNIT_DIRS: /etc/containers/systemd
+  changed_when: false
+
+- name: Démarrer le collecteur backend OTEL
+  ansible.builtin.systemd_service:
+    name: "{{ item }}.service"
+    state: restarted
+  loop: [observability-otel-backend]
+  when: otel_backend_collector_ready
+
+- name: Vérifier la santé du collecteur backend OTEL
+  ansible.builtin.uri:
+    url: http://127.0.0.1:13134/
+    status_code: 200
+  register: otel_backend_health
+  retries: 30
+  delay: 2
+  until: otel_backend_health.status == 200
+  when: otel_backend_collector_ready

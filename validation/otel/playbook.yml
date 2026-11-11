@@ -1,0 +1,121 @@
+---
+- name: Valider le receiver OTLP du Collecteur Edge en SSH
+  hosts: otel_validation_edge
+  gather_facts: true
+  tags: [host]
+  vars:
+    otel_service_name: otel-validation
+    # Plateforme de la VM otel-edge-01, servie par l'Edge (ADR-020).
+    otel_platform: elk
+    otel_deployment_environment: homologation
+    # Clé Bearer de la VM otel-edge-01 auprès de son Edge (ADR-015), fournie
+    # hors Git par le fichier d'identifiants du lab.
+    otel_edge_client_key: "{{ lookup('ansible.builtin.env', 'OTEL_EDGE_KEY_OTEL_EDGE_01') }}"
+    kibana_url: http://kibana.observability.test:5601
+    elasticsearch_url: http://elasticsearch.observability.test:9200
+    elasticsearch_username: elastic
+    elasticsearch_password: "{{ lookup('ansible.builtin.env', 'ELASTICSEARCH_PASSWORD') }}"
+    elasticsearch_validate_certs: true
+    validation_index_pattern: metrics-*
+    validation_timeout_seconds: 90
+    validation_poll_delay_seconds: 3
+  tasks:
+    - name: Construire le marqueur de validation
+      ansible.builtin.set_fact:
+        validation_marker: "otel-validation-{{ inventory_hostname }}-{{ ansible_facts['date_time']['iso8601_basic_short'] }}"
+
+    - name: Vérifier les paramètres indispensables
+      ansible.builtin.assert:
+        that:
+          - otel_gateway_direct_endpoint is defined
+          - kibana_url is defined
+          - elasticsearch_url is defined
+          - elasticsearch_password | length > 0
+          - otel_edge_client_key | length > 0
+        fail_msg: >-
+          Renseigner les URL dans le playbook et exporter ELASTICSEARCH_PASSWORD
+          et OTEL_EDGE_KEY_OTEL_EDGE_01 avant d'exécuter ce playbook.
+      no_log: true
+
+    - name: Vérifier que Kibana est joignable
+      ansible.builtin.uri:
+        url: "{{ kibana_url }}/api/status"
+        method: GET
+        user: "{{ elasticsearch_username }}"
+        password: "{{ elasticsearch_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ elasticsearch_validate_certs }}"
+        status_code: 200
+      no_log: true
+
+    - name: Envoyer une métrique de validation au receiver OTLP HTTP
+      ansible.builtin.uri:
+        url: "{{ otel_gateway_direct_endpoint | regex_replace('/$', '') }}/v1/metrics"
+        method: POST
+        body_format: json
+        headers:
+          Content-Type: application/json
+          Authorization: "Bearer {{ otel_edge_client_key }}"
+        body:
+          resourceMetrics:
+            - resource:
+                attributes:
+                  - key: service.name
+                    value:
+                      stringValue: "{{ otel_service_name }}"
+                  - key: deployment.environment.name
+                    value:
+                      stringValue: "{{ otel_deployment_environment }}"
+                  # Plateforme servie par l'Edge : sans elle, l'Edge rejette
+                  # la ressource (ADR-020). La métrique est indexée dans
+                  # cette plateforme avec platform.id.
+                  - key: platform.id
+                    value:
+                      stringValue: "{{ otel_platform }}"
+              scopeMetrics:
+                - scope:
+                    name: validation.ansible
+                  metrics:
+                    - name: otel.validation
+                      description: Métrique de validation OTLP
+                      unit: "1"
+                      gauge:
+                        dataPoints:
+                          - asDouble: 1
+                            timeUnixNano: "{{ (ansible_facts['date_time']['epoch'] | int) * 1000000000 }}"
+                            attributes:
+                              - key: validation.marker
+                                value:
+                                  stringValue: "{{ validation_marker }}"
+        status_code: [200, 202]
+      no_log: true
+
+    - name: Attendre l'indexation de la métrique dans Elasticsearch exploité par Kibana
+      ansible.builtin.uri:
+        url: "{{ elasticsearch_url | regex_replace('/$', '') }}/{{ validation_index_pattern }}/_search"
+        method: POST
+        user: "{{ elasticsearch_username }}"
+        password: "{{ elasticsearch_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ elasticsearch_validate_certs }}"
+        body_format: json
+        body:
+          size: 1
+          query:
+            query_string:
+              query: '"{{ validation_marker }}"'
+          sort:
+            - '@timestamp': desc
+        status_code: 200
+      register: indexed_message
+      until: (indexed_message.json.hits.total.value | int) > 0
+      retries: "{{ (validation_timeout_seconds | int / validation_poll_delay_seconds | int) | round(0, 'ceil') | int }}"
+      delay: "{{ validation_poll_delay_seconds }}"
+      no_log: true
+
+    - name: Afficher le résultat de la validation
+      ansible.builtin.debug:
+        msg: >-
+          Validation SSH validée : {{ validation_marker }}.
+          Il est consultable dans Kibana Discover avec la recherche exacte
+          "{{ validation_marker }}" sur le data view couvrant {{ validation_index_pattern }}.

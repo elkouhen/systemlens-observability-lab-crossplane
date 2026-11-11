@@ -1,0 +1,80 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: otelplatform
+spec:
+  compositeTypeRef:
+    apiVersion: observability.lab.io/v1alpha1
+    kind: OtelPlatform
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource }}
+            {{- $key := printf "%s-%s" $xr.spec.platform $xr.spec.environment }}
+            {{- $pc := dict "kind" "ClusterProviderConfig" "name" "kafka-otel" }}
+            {{- $topics := list }}
+            {{- range $signal := list "logs" "metrics" "traces" }}
+            {{- $topic := printf "otel-%s-%s" $signal $key }}
+            {{- $topics = append $topics $topic }}
+            ---
+            apiVersion: topic.kafka.m.crossplane.io/v1alpha1
+            kind: Topic
+            metadata:
+              name: {{ $topic | replace "_" "-" }}
+              namespace: crossplane-system
+              annotations:
+                {{ setResourceNameAnnotation (printf "topic-%s" $signal) }}
+                crossplane.io/external-name: {{ $topic }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              forProvider:
+                partitions: {{ $xr.spec.partitions }}
+                replicationFactor: 1
+                config:
+                  min.insync.replicas: "1"
+                  cleanup.policy: delete
+                  retention.ms: {{ $xr.spec.retentionMs | int64 | toString | quote }}
+                  retention.bytes: {{ $xr.spec.retentionBytes | int64 | toString | quote }}
+                  segment.ms: "3600000"
+                  segment.bytes: "67108864"
+            {{- /* ADR-017 : chaque publisher écrit uniquement dans les topics de ses plateformes */}}
+            {{- range $host := $xr.spec.publishers }}
+            {{- $user := printf "otel_publisher_%s" ($host | replace "-" "_") }}
+            {{- range $op := list "Write" "Describe" }}
+            ---
+            apiVersion: acl.kafka.m.crossplane.io/v1alpha1
+            kind: AccessControlList
+            metadata:
+              name: {{ printf "%s-%s-%s" ($topic | replace "_" "-") $host (lower $op) }}
+              namespace: crossplane-system
+              annotations:
+                {{ setResourceNameAnnotation (printf "acl-%s-%s-%s" $signal $host (lower $op)) }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              forProvider:
+                resourceType: Topic
+                resourceName: {{ $topic }}
+                resourcePatternTypeFilter: Literal
+                resourcePrincipal: User:{{ $user }}
+                resourceHost: "*"
+                resourceOperation: {{ $op }}
+                resourcePermissionType: Allow
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            ---
+            apiVersion: observability.lab.io/v1alpha1
+            kind: OtelPlatform
+            status:
+              topics: {{ toJson $topics }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

@@ -1,0 +1,119 @@
+---
+# Synchronisation horaire des VM du lab, incluse par le rôle common et par
+# le playbook time-sync.yml (make time-sync-apply).
+- name: Installer chrony
+  ansible.builtin.package:
+    name: chrony
+    state: present
+
+- name: Interroger les sources NTP au moins toutes les 64 secondes
+  # Sans maxpoll, chrony espace ses requêtes jusqu'à 1024 s : après une mise en
+  # veille de l'hôte, la dérive des VM resterait longtemps invisible.
+  ansible.builtin.replace:
+    path: "{{ '/etc/chrony/chrony.conf' if ansible_os_family == 'Debian' else '/etc/chrony.conf' }}"
+    regexp: '^((?:pool|server) (?!.*\bmaxpoll\b).*)$'
+    replace: '\1 maxpoll 6'
+  register: chrony_configuration
+
+- name: Autoriser chrony à sauter l'horloge dès qu'elle dérive de plus d'une seconde
+  # makestep 1.0 -1 : saut autorisé à tout moment, pas seulement aux trois
+  # premières mesures. Les VM Lima s'arrêtent quand l'hôte se met en veille
+  # et reprennent avec plusieurs minutes de retard.
+  ansible.builtin.lineinfile:
+    path: "{{ '/etc/chrony/chrony.conf' if ansible_os_family == 'Debian' else '/etc/chrony.conf' }}"
+    regexp: '^makestep '
+    line: makestep 1.0 -1
+    insertafter: EOF
+  register: chrony_makestep_configuration
+
+- name: Synchroniser l'horloge matérielle avec l'horloge système
+  ansible.builtin.lineinfile:
+    path: "{{ '/etc/chrony/chrony.conf' if ansible_os_family == 'Debian' else '/etc/chrony.conf' }}"
+    regexp: '^rtcsync$'
+    line: rtcsync
+    insertafter: '^makestep '
+  register: chrony_rtcsync_configuration
+
+- name: Redémarrer chrony après modification de sa configuration
+  ansible.builtin.systemd_service:
+    name: "{{ 'chrony' if ansible_os_family == 'Debian' else 'chronyd' }}"
+    state: restarted
+  when: >-
+    chrony_configuration.changed or
+    chrony_makestep_configuration.changed or
+    chrony_rtcsync_configuration.changed
+
+- name: Activer la synchronisation NTP
+  ansible.builtin.systemd_service:
+    name: "{{ 'chrony' if ansible_os_family == 'Debian' else 'chronyd' }}"
+    enabled: true
+    state: started
+
+- name: Installer le script de reprise de chrony après une suspension de la VM
+  # Une veille de l'hôte suspend les VM Lima : leur horloge reprend avec
+  # des minutes de retard. chrony garde des mesures d'avant et d'après le saut,
+  # sa régression est faussée, toutes les sources sont marquées trop variables
+  # (~) et, sans source sélectionnée, makestep ne saute jamais l'horloge.
+  # chronyc reset sources efface ces mesures ; burst en obtient de nouvelles,
+  # cohérentes, puis makestep 1.0 -1 corrige l'horloge.
+  ansible.builtin.copy:
+    dest: /usr/local/sbin/chrony-resume-check
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # Reprise de chrony sans source sélectionnée (rôle Ansible common).
+      set -eu
+      sources="$(chronyc -n sources)"
+      # Une source sélectionnée ou combinée : rien à faire.
+      printf '%s\n' "$sources" | grep -Eq '^\^[*+]' && exit 0
+      # Aucune source joignable (registre Reach à 0) : la reprise n'y changerait rien.
+      printf '%s\n' "$sources" | awk '$1 ~ /^\^/ && $5 != "0" { found = 1 } END { exit !found }' || exit 0
+      logger -t chrony-resume-check "aucune source NTP sélectionnée : réinitialisation des mesures chrony"
+      chronyc reset sources >/dev/null
+      chronyc burst 4/4 >/dev/null
+
+- name: Déclarer le service de reprise de chrony
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/chrony-resume-check.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Réinitialiser les mesures chrony quand aucune source NTP n'est sélectionnée
+      After=chrony.service chronyd.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/chrony-resume-check
+  register: chrony_resume_service
+
+- name: Déclarer le timer de reprise de chrony
+  # Toutes les minutes : après une reprise, l'horloge est corrigée en une à deux
+  # minutes au lieu de rester décalée jusqu'au prochain redémarrage de chrony.
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/chrony-resume-check.timer
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Vérifier chaque minute que chrony a une source NTP sélectionnée
+
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=1min
+      AccuracySec=10s
+
+      [Install]
+      WantedBy=timers.target
+  register: chrony_resume_timer
+
+- name: Activer le timer de reprise de chrony
+  ansible.builtin.systemd_service:
+    name: chrony-resume-check.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ chrony_resume_service.changed or chrony_resume_timer.changed }}"
+
+- name: Corriger immédiatement l'horloge si une source NTP est disponible
+  # Le script réinitialise d'abord des mesures faussées par une suspension.
+  ansible.builtin.shell: /usr/local/sbin/chrony-resume-check && chronyc waitsync 6 1 && chronyc makestep
+  changed_when: false
+  failed_when: false

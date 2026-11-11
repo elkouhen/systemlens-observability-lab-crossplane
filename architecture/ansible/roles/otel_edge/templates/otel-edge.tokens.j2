@@ -1,0 +1,5 @@
+{% for host in otel_edge_hosts %}
+{{ hostvars[host].otel_edge_client_key }} # {{ host }}
+{% endfor %}
+{{ otel_edge_key_kubernetes }} # otel-kubernetes
+{{ otel_edge_key_kubernetes_cluster }} # otel-kubernetes-cluster

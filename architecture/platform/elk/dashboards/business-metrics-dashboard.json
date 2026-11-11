@@ -1,0 +1,302 @@
+{
+  "id": "business-metrics-dashboard",
+  "title": "Métriques métier — Supermarket Demo",
+  "description": "Parcours golden signals : Métier (commandes, réassort, stock) → Traffic → Latency → Errors → Saturation. Les métriques techniques des microservices sont représentées par des courbes temporelles, avec une série et une légende par microservice lorsque la dimension est disponible.",
+  "time_range": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "vis",
+      "id": "business-orders-total",
+      "grid": { "x": 0, "y": 0, "w": 12, "h": 5 },
+      "config": {
+        "title": "",
+        "type": "metric",
+        "data_source": {
+          "type": "esql",
+          "query": "SET unmapped_fields=\"NULLIFY\"; FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.business.orders.completed IS NOT NULL | EVAL counter = TO_DOUBLE(metrics.business.orders.completed) | STATS start = MIN(counter), end = MAX(counter) BY instance = resource.attributes.service.instance.id, channel = attributes.channel | EVAL channel_total = end - start | STATS total_orders = SUM(channel_total)"
+        },
+        "metrics": [
+          { "type": "primary", "column": "total_orders", "label": "Commandes finalisées", "format": { "type": "number", "decimals": 0 } }
+        ]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "business-restock-requested-total",
+      "grid": { "x": 12, "y": 0, "w": 12, "h": 5 },
+      "config": {
+        "title": "",
+        "type": "metric",
+        "data_source": {
+          "type": "esql",
+          "query": "SET unmapped_fields=\"NULLIFY\"; FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.business.stock.restock.requested IS NOT NULL | EVAL counter = TO_DOUBLE(metrics.business.stock.restock.requested) | STATS start = MIN(counter), end = MAX(counter) BY instance = resource.attributes.service.instance.id | EVAL total_requested = end - start | STATS total_requested = SUM(total_requested)"
+        },
+        "metrics": [
+          { "type": "primary", "column": "total_requested", "label": "Réassorts demandés", "format": { "type": "number", "decimals": 0 } }
+        ]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "business-restock-completed-total",
+      "grid": { "x": 24, "y": 0, "w": 12, "h": 5 },
+      "config": {
+        "title": "",
+        "type": "metric",
+        "data_source": {
+          "type": "esql",
+          "query": "SET unmapped_fields=\"NULLIFY\"; FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.business.stock.restock.completed IS NOT NULL | EVAL counter = TO_DOUBLE(metrics.business.stock.restock.completed) | STATS start = MIN(counter), end = MAX(counter) BY instance = resource.attributes.service.instance.id | EVAL total_completed = end - start | STATS total_completed = SUM(total_completed)"
+        },
+        "metrics": [
+          { "type": "primary", "column": "total_completed", "label": "Réassorts terminés", "format": { "type": "number", "decimals": 0 } }
+        ]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "business-restock-backlog-total",
+      "grid": { "x": 36, "y": 0, "w": 12, "h": 5 },
+      "config": {
+        "title": "",
+        "type": "metric",
+        "data_source": {
+          "type": "esql",
+          "query": "SET unmapped_fields=\"NULLIFY\"; FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart | EVAL requested_counter = TO_DOUBLE(metrics.business.stock.restock.requested), completed_counter = TO_DOUBLE(metrics.business.stock.restock.completed) | STATS requested_start = MIN(requested_counter), requested_end = MAX(requested_counter), completed_start = MIN(completed_counter), completed_end = MAX(completed_counter) BY instance = resource.attributes.service.instance.id | EVAL restock_gap = (requested_end - requested_start) - (completed_end - completed_start) | STATS restock_gap = SUM(restock_gap)"
+        },
+        "metrics": [
+          { "type": "primary", "column": "restock_gap", "label": "Écart réassorts sur la période", "format": { "type": "number", "decimals": 0 } }
+        ]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "business-orders-over-time",
+      "grid": { "x": 0, "y": 5, "w": 24, "h": 10 },
+      "config": {
+        "title": "Métier — commandes finalisées par période",
+        "type": "xy",
+        "axis": {
+          "x": { "title": { "visible": false }, "scale": "temporal", "domain": { "type": "fit", "rounding": false } },
+          "y": { "title": { "visible": false } }
+        },
+        "legend": { "position": "right", "placement": "outside" },
+        "layers": [
+          {
+            "type": "line",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.business.orders.completed IS NOT NULL | EVAL counter = TO_DOUBLE(metrics.business.orders.completed) | STATS start = MIN(counter), end = MAX(counter) BY bucket = BUCKET(@timestamp, 75, ?_tstart, ?_tend), channel = attributes.channel | EVAL channel_total = end - start | STATS total_orders = SUM(channel_total) BY bucket"
+            },
+            "x": { "column": "bucket", "label": "Période" },
+            "y": [{ "column": "total_orders", "label": "Commandes finalisées", "format": { "type": "number", "decimals": 0 } }]
+          }
+        ]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "business-restock-over-time",
+      "grid": { "x": 24, "y": 5, "w": 24, "h": 10 },
+      "config": {
+        "title": "Métier — flux de réassort par période",
+        "type": "xy",
+        "axis": {
+          "x": { "title": { "visible": false }, "scale": "temporal", "domain": { "type": "fit", "rounding": false } },
+          "y": { "title": { "visible": false } }
+        },
+        "legend": { "position": "right", "placement": "outside" },
+        "layers": [
+          {
+            "type": "line",
+            "data_source": {
+              "type": "esql",
+              "query": "SET unmapped_fields=\"NULLIFY\"; FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart | EVAL requested_counter = TO_DOUBLE(metrics.business.stock.restock.requested), completed_counter = TO_DOUBLE(metrics.business.stock.restock.completed) | STATS requested_start = MIN(requested_counter), requested_end = MAX(requested_counter), completed_start = MIN(completed_counter), completed_end = MAX(completed_counter) BY BUCKET(@timestamp, 75, ?_tstart, ?_tend) | EVAL requested = requested_end - requested_start, completed = completed_end - completed_start"
+            },
+            "x": { "column": "BUCKET(@timestamp, 75, ?_tstart, ?_tend)", "label": "Période" },
+            "y": [
+              { "column": "requested", "label": "Réassorts demandés", "format": { "type": "number", "decimals": 0 } },
+              { "column": "completed", "label": "Réassorts terminés", "format": { "type": "number", "decimals": 0 } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "business-orders-by-channel-over-time",
+      "grid": { "x": 0, "y": 15, "w": 48, "h": 10 },
+      "config": {
+        "title": "Métier — commandes finalisées par canal",
+        "type": "xy",
+        "axis": {
+          "x": { "title": { "visible": false }, "scale": "temporal", "domain": { "type": "fit", "rounding": false } },
+          "y": { "title": { "visible": false } }
+        },
+        "legend": { "position": "right", "placement": "outside" },
+        "layers": [
+          {
+            "type": "line",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND attributes.channel == \"rest\" AND metrics.business.orders.completed IS NOT NULL | EVAL counter = TO_DOUBLE(metrics.business.orders.completed) | STATS start = MIN(counter), end = MAX(counter) BY BUCKET(@timestamp, 75, ?_tstart, ?_tend) | EVAL total_rest = end - start"
+            },
+            "x": { "column": "BUCKET(@timestamp, 75, ?_tstart, ?_tend)", "label": "Période" },
+            "y": [{ "column": "total_rest", "label": "REST", "format": { "type": "number", "decimals": 0 } }]
+          },
+          {
+            "type": "line",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND attributes.channel == \"kafka\" AND metrics.business.orders.completed IS NOT NULL | EVAL counter = TO_DOUBLE(metrics.business.orders.completed) | STATS start = MIN(counter), end = MAX(counter) BY BUCKET(@timestamp, 75, ?_tstart, ?_tend) | EVAL total_kafka = end - start"
+            },
+            "x": { "column": "BUCKET(@timestamp, 75, ?_tstart, ?_tend)", "label": "Période" },
+            "y": [{ "column": "total_kafka", "label": "Kafka", "format": { "type": "number", "decimals": 0 } }]
+          }
+        ]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "service-availability",
+      "grid": { "x": 0, "y": 68, "w": 48, "h": 5 },
+      "config": {
+        "title": "HTTP — requêtes actives des services",
+        "type": "metric",
+        "data_source": { "type": "esql", "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.http.server.requests.active IS NOT NULL | STATS active_requests = AVG(metrics.http.server.requests.active)" },
+        "metrics": [{ "type": "primary", "column": "active_requests", "label": "Requêtes actives moyennes", "format": { "type": "number", "decimals": 2 } }]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "service-cpu-over-time",
+      "grid": { "x": 0, "y": 73, "w": 24, "h": 10 },
+      "config": {
+        "title": "Saturation — CPU dans le temps",
+        "type": "xy",
+        "axis": { "x": { "title": { "visible": false }, "scale": "temporal" }, "y": { "title": { "visible": false } } },
+        "legend": { "position": "right", "placement": "outside" },
+        "layers": [{ "type": "line", "data_source": { "type": "esql", "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.process.cpu.usage IS NOT NULL | STATS cpu_average = AVG(metrics.process.cpu.usage) BY service = resource.attributes.service.name, bucket = BUCKET(@timestamp, 75, ?_tstart, ?_tend)" }, "x": { "column": "bucket", "label": "Période" }, "y": [{ "column": "cpu_average", "label": "CPU moyen", "format": { "type": "number", "decimals": 3 } }], "breakdown_by": { "column": "service" } }]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "jvm-memory-over-time",
+      "grid": { "x": 24, "y": 73, "w": 24, "h": 10 },
+      "config": {
+        "title": "Saturation — mémoire JVM dans le temps",
+        "type": "xy",
+        "axis": { "x": { "title": { "visible": false }, "scale": "temporal" }, "y": { "title": { "visible": false } } },
+        "legend": { "position": "right", "placement": "outside" },
+        "layers": [{ "type": "line", "data_source": { "type": "esql", "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.jvm.memory.used IS NOT NULL AND metrics.jvm.memory.max > 0 | EVAL memory_ratio = metrics.jvm.memory.used / metrics.jvm.memory.max | STATS memory_ratio = AVG(memory_ratio) BY service = resource.attributes.service.name, bucket = BUCKET(@timestamp, 75, ?_tstart, ?_tend)" }, "x": { "column": "bucket", "label": "Période" }, "y": [{ "column": "memory_ratio", "label": "Ratio mémoire", "format": { "type": "number", "decimals": 3 } }], "breakdown_by": { "column": "service" } }]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "stock-by-product",
+      "grid": { "x": 0, "y": 25, "w": 48, "h": 10 },
+      "config": {
+        "title": "Stock — état par produit",
+        "type": "data_table",
+        "data_source": { "type": "esql", "query": "SET unmapped_fields=\"NULLIFY\"; FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.business.stock.quantity IS NOT NULL | EVAL stock = TO_DOUBLE(metrics.business.stock.quantity) | STATS stock = MAX(stock) BY product_id = attributes.product_id, product_name = attributes.product_name | SORT stock ASC" },
+        "metrics": [{ "column": "stock", "label": "Stock disponible" }],
+        "rows": [{ "column": "product_id", "label": "Produit" }, { "column": "product_name", "label": "Nom" }]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "http-endpoint-latency",
+      "grid": { "x": 0, "y": 40, "w": 24, "h": 14 },
+      "config": {
+        "title": "HTTP — requêtes actives par endpoint",
+        "type": "data_table",
+        "data_source": { "type": "esql", "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.http.server.requests.active IS NOT NULL | STATS samples = COUNT(*), avg_active = AVG(metrics.http.server.requests.active), max_active = MAX(metrics.http.server.requests.active) BY service = resource.attributes.service.name, method = attributes.method, endpoint = attributes.uri | SORT max_active DESC" },
+        "metrics": [
+          { "column": "samples", "label": "Mesures" },
+          { "column": "avg_active", "label": "Actives moyennes" },
+          { "column": "max_active", "label": "Actives maximum" }
+        ],
+        "rows": [
+          { "column": "service", "label": "Service" },
+          { "column": "method", "label": "Méthode" },
+          { "column": "endpoint", "label": "Endpoint" }
+        ]
+      }
+    },
+    {
+      "type": "vis", "id": "http-traffic-kpi", "grid": { "x": 0, "y": 35, "w": 16, "h": 5 },
+      "config": { "title": "HTTP — mesures de requêtes actives", "type": "metric", "data_source": { "type": "esql", "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.http.server.requests.active IS NOT NULL | STATS samples = COUNT(*)" }, "metrics": [{ "type": "primary", "column": "samples", "label": "Mesures HTTP", "format": { "type": "number", "decimals": 0 } }] }
+    },
+    {
+      "type": "vis", "id": "http-latency-kpi", "grid": { "x": 16, "y": 35, "w": 16, "h": 5 },
+      "config": { "title": "HTTP — requêtes actives moyennes", "type": "metric", "data_source": { "type": "esql", "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.http.server.requests.active IS NOT NULL | STATS average_active = AVG(metrics.http.server.requests.active)" }, "metrics": [{ "type": "primary", "column": "average_active", "label": "Actives moyennes", "format": { "type": "number", "decimals": 2 } }] }
+    },
+    {
+      "type": "vis", "id": "http-errors-kpi", "grid": { "x": 32, "y": 35, "w": 16, "h": 5 },
+      "config": { "title": "HTTP — taux d’erreur observé", "type": "metric", "data_source": { "type": "esql", "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.http.server.requests.active IS NOT NULL | EVAL error = CASE(attributes.outcome != \"SUCCESS\", 1, 0) | STATS total = COUNT(*), total_errors = SUM(error) | EVAL error_rate = 100 * total_errors / total" }, "metrics": [{ "type": "primary", "column": "error_rate", "label": "Taux observé (%)", "format": { "type": "number", "decimals": 2 } }] }
+    },
+    {
+      "type": "vis",
+      "id": "jvm-gc-overhead-over-time",
+      "grid": { "x": 0, "y": 83, "w": 48, "h": 10 },
+      "config": {
+        "title": "Saturation — surcharge GC JVM dans le temps",
+        "type": "xy",
+        "axis": { "x": { "title": { "visible": false }, "scale": "temporal" }, "y": { "title": { "visible": false } } },
+        "legend": { "position": "right", "placement": "outside" },
+        "layers": [{ "type": "line", "data_source": { "type": "esql", "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.jvm.gc.overhead IS NOT NULL | EVAL overhead = TO_DOUBLE(metrics.jvm.gc.overhead) | STATS gc_overhead = AVG(overhead) BY service = resource.attributes.service.name, bucket = BUCKET(@timestamp, 75, ?_tstart, ?_tend)" }, "x": { "column": "bucket", "label": "Période" }, "y": [{ "column": "gc_overhead", "label": "Surcharge GC", "format": { "type": "number", "decimals": 3 } }], "breakdown_by": { "column": "service" } }]
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "apm-navigation-links",
+      "grid": { "x": 0, "y": 93, "w": 48, "h": 4 },
+      "config": { "content": "### Explorer les signaux\n\n[APM — Monitoring Overview](/app/apm) · [Services APM](/app/apm/services) · [Transactions APM](/app/apm/services) · [Kubernetes — Services](/app/dashboards#/view/kubernetes-ff1b3850-bcb1-11ec-b64f-7dd6e8e82013)" }
+    },
+    {
+      "type": "vis",
+      "id": "kafka-endpoint-statistics",
+      "grid": { "x": 0, "y": 54, "w": 24, "h": 14 },
+      "config": {
+        "title": "Traffic / Latency — statistiques clients Kafka",
+        "type": "data_table",
+        "data_source": { "type": "esql", "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND (metrics.kafka.consumer.fetch.manager.fetch.latency.avg IS NOT NULL OR metrics.kafka.producer.request.latency.avg IS NOT NULL) | STATS fetch_avg_ms = AVG(metrics.kafka.consumer.fetch.manager.fetch.latency.avg), fetch_max_ms = MAX(metrics.kafka.consumer.fetch.manager.fetch.latency.max), producer_request_avg_ms = AVG(metrics.kafka.producer.request.latency.avg), producer_request_max_ms = MAX(metrics.kafka.producer.request.latency.max), records_consumed_rate = AVG(metrics.kafka.consumer.fetch.manager.records.consumed.rate), lag_max = MAX(metrics.kafka.consumer.fetch.manager.records.lag.max) BY topic = attributes.topic, partition = attributes.partition | SORT fetch_max_ms DESC" },
+        "metrics": [
+          { "column": "fetch_avg_ms", "label": "Fetch moyen (ms)" },
+          { "column": "fetch_max_ms", "label": "Fetch max (ms)" },
+          { "column": "producer_request_avg_ms", "label": "Publication moyenne (ms)" },
+          { "column": "producer_request_max_ms", "label": "Publication max (ms)" },
+          { "column": "records_consumed_rate", "label": "Débit consommé" },
+          { "column": "lag_max", "label": "Lag max" }
+        ],
+        "rows": [
+          { "column": "topic", "label": "Topic" },
+          { "column": "partition", "label": "Partition" }
+        ]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "kafka-message-processing-statistics",
+      "grid": { "x": 24, "y": 54, "w": 24, "h": 14 },
+      "config": {
+        "title": "Kafka — latence de lecture des messages",
+        "type": "data_table",
+        "data_source": { "type": "esql", "query": "FROM metrics-generic.otel-supermarche_* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.kafka.consumer.fetch.manager.fetch.latency.max IS NOT NULL | STATS p50_ms = PERCENTILE(metrics.kafka.consumer.fetch.manager.fetch.latency.max, 50), p95_ms = PERCENTILE(metrics.kafka.consumer.fetch.manager.fetch.latency.max, 95), p99_ms = PERCENTILE(metrics.kafka.consumer.fetch.manager.fetch.latency.max, 99), max_ms = MAX(metrics.kafka.consumer.fetch.manager.fetch.latency.max), measurements = COUNT(*) BY service = resource.attributes.service.name, topic = attributes.topic | SORT p99_ms DESC" },
+        "metrics": [
+          { "column": "measurements", "label": "Mesures" },
+          { "column": "p50_ms", "label": "P50 (ms)" },
+          { "column": "p95_ms", "label": "P95 (ms)" },
+          { "column": "p99_ms", "label": "P99 (ms)" },
+          { "column": "max_ms", "label": "Maximum (ms)" }
+        ],
+        "rows": [
+          { "column": "service", "label": "Service" },
+          { "column": "topic", "label": "Topic" }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+.idea
+*.xlsx
+*.xslx
+*.html
+dist 
+node_modules
+certs/*
+!certs/README.md
+
+# Sélection locale de l'architecture déployée (v3).
+.architecture-version
+*/.architecture-version
+
+# Artéfacts de compilation Maven, quel que soit le module.
+target/
+
+# Métadonnées locales des agents.
+.agent/
+.agents/
+**/.systemlens/findings.db
+# Métadonnées et bases locales SystemLens générées par les agents.
+**/.systemlens/
+
+# Rapport APM Elastic généré localement.
+/apm.html
+
+# Cache local des dépendances APM ; le manifeste et le lockfile restent versionnés.
+/apm_modules/
+
+# Export local potentiellement sensible ; ne jamais versionner une clé Kibana.
+/kibana-key.md
+
+# Certificat racine Zscaler (ou tout proxy TLS d'entreprise) fourni localement.
+# Voir certs/README.md : jamais versionné, propre à chaque machine.
+certs/*.crt
+certs/*.pem
+
+# APM dependencies
+apm_modules/
+
+# Dépendances locales du support Slidev.
+v3/slides/node_modules/
+.otel-render/
+.xp-install.log
+architecture/.lima-logs/

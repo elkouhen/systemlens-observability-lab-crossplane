@@ -1,0 +1,56 @@
+[Unit]
+Description=Kafka KRaft dédié aux signaux OTel
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=docker.io/apache/kafka:4.4.0
+ContainerName=observability-otel-kafka
+Network=host
+Volume=otel-kafka-data:/tmp/kraft-combined-logs:Z
+Volume=/var/log/kafka:/opt/kafka/logs:Z
+Volume=/opt/observability/jolokia-agent.jar:/opt/jolokia/jolokia-agent.jar:ro,Z
+Environment=CLUSTER_ID={{ otel_kafka_cluster_id }}
+Environment=KAFKA_NODE_ID=2
+Environment=KAFKA_PROCESS_ROLES=broker,controller
+Environment=KAFKA_LISTENERS=INTERNAL://:9092,DOCKER://:19092,CONTROLLER://:9093
+Environment=KAFKA_ADVERTISED_LISTENERS=INTERNAL://{{ node_ip }}:9092,DOCKER://{{ node_ip }}:19092
+Environment=KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+# Tous les listeners sont authentifiés, contrôleur KRaft compris : le broker
+# s'y présente comme otel_admin (ADR-017).
+Environment=KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:SASL_PLAINTEXT,INTERNAL:SASL_PLAINTEXT,DOCKER:SASL_PLAINTEXT
+Environment=KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL
+# PLAIN pour otel_admin uniquement ; SCRAM-SHA-512 pour les comptes gérés par Crossplane.
+Environment=KAFKA_SASL_ENABLED_MECHANISMS=PLAIN,SCRAM-SHA-512
+Environment=KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL=PLAIN
+Environment=KAFKA_SASL_MECHANISM_CONTROLLER_PROTOCOL=PLAIN
+# ACL (ADR-017) : sans ACL, un compte n'a aucun droit ; seul otel_admin les
+# a tous. Les ACL sont déclarées et réconciliées par Crossplane.
+Environment=KAFKA_AUTHORIZER_CLASS_NAME=org.apache.kafka.metadata.authorizer.StandardAuthorizer
+Environment=KAFKA_SUPER_USERS=User:otel_admin
+Environment=KAFKA_CONTROLLER_QUORUM_VOTERS={{ otel_kafka_controller_voters }}
+Environment=KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+Environment=KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+Environment=KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+Environment=KAFKA_DEFAULT_REPLICATION_FACTOR=1
+Environment=KAFKA_MIN_INSYNC_REPLICAS=1
+Environment=KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+# Seuls les topics du registre (platform/crossplane/platforms.yaml) existent (ADR-017).
+Environment=KAFKA_AUTO_CREATE_TOPICS_ENABLE=false
+Environment=KAFKA_LOG_RETENTION_HOURS=24
+Environment=KAFKA_LOG_RETENTION_BYTES=536870912
+Environment=KAFKA_LOG_ROLL_HOURS=1
+Environment=KAFKA_LOG_SEGMENT_BYTES=67108864
+Environment=KAFKA_LOG_CLEANUP_POLICY=delete
+Environment=KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS=300000
+Environment=KAFKA_LOG_DIRS=/tmp/kraft-combined-logs
+Environment=KAFKA_HEAP_OPTS=-Xms256m -Xmx256m
+Environment="KAFKA_OPTS=-Djava.security.auth.login.config=/opt/kafka/config/otel-kafka-jaas.conf -javaagent:/opt/jolokia/jolokia-agent.jar=port=8778,host=127.0.0.1 -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=9999 -Dcom.sun.management.jmxremote.rmi.port=9999 -Djava.rmi.server.hostname=127.0.0.1 -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false"
+Volume=/etc/observability/otel-kafka-jaas.conf:/opt/kafka/config/otel-kafka-jaas.conf:ro,Z
+Volume=/etc/observability/otel-kafka-client.properties:/opt/kafka/config/otel-kafka-client.properties:ro,Z
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

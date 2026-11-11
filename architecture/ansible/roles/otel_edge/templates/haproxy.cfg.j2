@@ -1,0 +1,29 @@
+global
+  log stdout format raw local0
+  stats socket /run/haproxy/admin.sock mode 660 user root group haproxy level admin
+  stats timeout 30s
+
+defaults
+  log global
+  timeout connect 5s
+  timeout client 60s
+  timeout server 60s
+
+frontend otlp_grpc
+  bind :4317
+  mode tcp
+  default_backend otel_backend_grpc
+
+backend otel_backend_grpc
+  mode tcp
+  server otel_edge_collector 127.0.0.1:14317
+
+frontend otlp_http
+  bind :4318
+  mode http
+  default_backend otel_backend_http
+
+backend otel_backend_http
+  mode http
+  option tcp-check
+  server otel_edge_collector 127.0.0.1:14318 check

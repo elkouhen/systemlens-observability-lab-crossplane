@@ -1,0 +1,125 @@
+{
+  "id": "otel-flow-health-dashboard",
+  "title": "Santé des flux OTel",
+  "description": "Vue opérationnelle de la remontée des métriques, logs et traces depuis Kubernetes et les VM vers Edge, Kafka OTel et Elasticsearch.",
+  "time_range": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "vis",
+      "id": "otel-flow-signal-volume",
+      "grid": { "x": 0, "y": 0, "w": 24, "h": 10 },
+      "config": {
+        "title": "Volume par type de signal",
+        "type": "xy",
+        "axis": { "x": { "title": { "visible": false }, "scale": "temporal" }, "y": { "title": { "visible": true, "text": "Documents" } } },
+        "legend": { "position": "right", "placement": "outside" },
+        "layers": [
+          {
+            "type": "line",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM metrics-*,traces-*,logs-* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart | STATS documents = COUNT(*) BY dataset = data_stream.dataset, bucket = BUCKET(@timestamp, 50, ?_tstart, ?_tend)"
+            },
+            "x": { "column": "bucket", "label": "Période" },
+            "y": [{ "column": "documents", "label": "Documents" }],
+            "breakdown_by": { "column": "dataset" }
+          }
+        ]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "otel-flow-dataset-freshness",
+      "grid": { "x": 24, "y": 0, "w": 24, "h": 10 },
+      "config": {
+        "title": "Dernière donnée par dataset",
+        "type": "data_table",
+        "data_source": {
+          "type": "esql",
+          "query": "FROM metrics-*,traces-*,logs-* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart | STATS last_seen = MAX(@timestamp), documents = COUNT(*) BY dataset = data_stream.dataset | SORT last_seen ASC"
+        },
+        "metrics": [{ "column": "documents", "label": "Documents" }, { "column": "last_seen", "label": "Dernière donnée" }],
+        "rows": [{ "column": "dataset", "label": "Dataset" }]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "otel-flow-hostmetrics",
+      "grid": { "x": 0, "y": 10, "w": 24, "h": 10 },
+      "config": {
+        "title": "Hostmetrics par hôte",
+        "type": "xy",
+        "axis": { "x": { "title": { "visible": false }, "scale": "temporal" }, "y": { "title": { "visible": true, "text": "CPU" } } },
+        "legend": { "position": "right", "placement": "outside" },
+        "layers": [
+          {
+            "type": "line",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM metrics-hostmetricsreceiver.otel-* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.system.cpu.utilization IS NOT NULL | STATS cpu = AVG(metrics.system.cpu.utilization) BY host = resource.attributes.host.name, bucket = BUCKET(@timestamp, 50, ?_tstart, ?_tend)"
+            },
+            "x": { "column": "bucket", "label": "Période" },
+            "y": [{ "column": "cpu", "label": "CPU" }],
+            "breakdown_by": { "column": "host" }
+          }
+        ]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "otel-flow-collector-telemetry",
+      "grid": { "x": 24, "y": 10, "w": 24, "h": 10 },
+      "config": {
+        "title": "Télémétrie des collecteurs",
+        "type": "data_table",
+        "data_source": {
+          "type": "esql",
+          "query": "FROM metrics-collectortelemetry.otel-* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart | STATS documents = COUNT(*), last_seen = MAX(@timestamp) BY service = resource.attributes.service.instance.id | SORT documents DESC"
+        },
+        "metrics": [{ "column": "documents", "label": "Documents" }, { "column": "last_seen", "label": "Dernière donnée" }],
+        "rows": [{ "column": "service", "label": "Collecteur" }]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "otel-flow-kafka-lag",
+      "grid": { "x": 0, "y": 20, "w": 24, "h": 10 },
+      "config": {
+        "title": "Kafka — lag consommateur",
+        "type": "xy",
+        "axis": { "x": { "title": { "visible": false }, "scale": "temporal" }, "y": { "title": { "visible": true, "text": "Lag" } } },
+        "legend": { "position": "right", "placement": "outside" },
+        "layers": [
+          {
+            "type": "line",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM metrics-kafkametricsreceiver.otel-* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND metrics.kafka.consumer_group.lag IS NOT NULL | STATS lag = MAX(metrics.kafka.consumer_group.lag) BY group = attributes.group, bucket = BUCKET(@timestamp, 50, ?_tstart, ?_tend)"
+            },
+            "x": { "column": "bucket", "label": "Période" },
+            "y": [{ "column": "lag", "label": "Lag" }],
+            "breakdown_by": { "column": "group" }
+          }
+        ]
+      }
+    },
+    {
+      "type": "vis",
+      "id": "otel-flow-errors",
+      "grid": { "x": 24, "y": 20, "w": 24, "h": 10 },
+      "config": {
+        "title": "Erreurs de collecte",
+        "type": "data_table",
+        "data_source": {
+          "type": "esql",
+          "query": "FROM logs-* | WHERE @timestamp <= ?_tend AND @timestamp > ?_tstart AND (message LIKE \"*error*\" OR message LIKE \"*failed*\" OR message LIKE \"*refused*\") | STATS errors = COUNT(*) BY service = service.name | SORT errors DESC"
+        },
+        "metrics": [{ "column": "errors", "label": "Erreurs" }],
+        "rows": [{ "column": "service", "label": "Service" }]
+      }
+    }
+  ]
+}

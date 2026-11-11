@@ -1,0 +1,24 @@
+# Saved objects Kibana exportés en NDJSON (data view APM), importés par Terraform.
+# Remplace make apm-data-view-deploy. Les règles d'alerte sont dans kibana-alerting.yaml ; les
+# dashboards décrits en JSON brut sont gérés par provider-http (voir scripts/kibana-requests.py).
+apiVersion: tf.m.upbound.io/v1beta1
+kind: Workspace
+metadata:
+  name: kibana-saved-objects
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: elastic}
+  forProvider:
+    source: Inline
+    varFiles:
+      - source: ConfigMapKey
+        configMapKeyRef: {name: elastic-assets, key: kibana.tfvars.json}
+        format: JSON
+    module: |
+      variable "saved_objects" { type = map(string) }
+
+      resource "elasticstack_kibana_import_saved_objects" "ndjson" {
+        for_each      = var.saved_objects
+        file_contents = each.value
+        overwrite     = true
+      }

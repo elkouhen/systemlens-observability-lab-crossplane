@@ -1,0 +1,118 @@
+---
+# Contrôle de l'isolation des plateformes dans le Kafka OTel (ADR-017),
+# sans écriture : chaque tentative doit être refusée par le broker avant
+# tout envoi. Pour chaque producteur du registre otel_platforms :
+#   - ses ACL couvrent exactement les topics de ses plateformes ;
+#   - une écriture dans un topic hors registre est refusée
+#     (TopicAuthorizationException, et non une erreur d'authentification) ;
+#   - une écriture dans le topic d'une plateforme qui ne lui est pas
+#     attribuée est refusée, quand une telle plateforme existe.
+# Le broker refuse aussi la création automatique de topics.
+# Prérequis : KAFKA_OTEL_PUBLISHER_PASSWORD (make otel-kafka-acl-verify).
+- name: Vérifier les ACL du Kafka OTel
+  hosts: otel_backend_nodes
+  become: true
+  gather_facts: false
+  vars:
+    otel_kafka_exec: [podman, exec, --env, KAFKA_OPTS=, observability-otel-kafka]
+    otel_kafka_admin: [--bootstrap-server, localhost:9092, --command-config, /opt/kafka/config/otel-kafka-client.properties]
+    otel_unregistered_topic: otel-logs-acl_probe-homologation
+  tasks:
+    - name: Vérifier le secret racine Kafka OTel
+      ansible.builtin.assert:
+        that: otel_kafka_secret | length > 0
+        fail_msg: Charger KAFKA_OTEL_PUBLISHER_PASSWORD (source architecture/platform/elk/scripts/load-credentials.sh).
+        quiet: true
+
+    - name: Lire le registre des plateformes
+      ansible.builtin.import_role:
+        name: otel_backend
+        tasks_from: platforms.yml
+
+    - name: Lire la configuration du broker
+      ansible.builtin.command:
+        argv: "{{ otel_kafka_exec + ['/opt/kafka/bin/kafka-configs.sh'] + otel_kafka_admin + ['--describe', '--all', '--entity-type', 'brokers', '--entity-name', '2'] }}"
+      register: otel_broker_config
+      changed_when: false
+
+    - name: Vérifier l'authorizer et l'absence de création automatique
+      ansible.builtin.assert:
+        that:
+          - "'authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer' in otel_broker_config.stdout"
+          - "'auto.create.topics.enable=false' in otel_broker_config.stdout"
+        fail_msg: Le broker Kafka OTel n'applique pas d'ACL ou crée les topics à la demande.
+        quiet: true
+
+    - name: Lire les ACL de chaque producteur
+      ansible.builtin.command:
+        argv: "{{ otel_kafka_exec + ['/opt/kafka/bin/kafka-acls.sh'] + otel_kafka_admin + ['--list', '--principal', 'User:' ~ item.username] }}"
+      loop: "{{ otel_kafka_publishers }}"
+      loop_control:
+        label: "{{ item.username }}"
+      register: otel_publisher_acls
+      changed_when: false
+
+    - name: Vérifier que les ACL couvrent exactement les topics attribués
+      vars:
+        acl_topics: "{{ item.stdout | regex_findall('name=(otel-[a-z0-9_-]+), patternType=LITERAL') | unique | sort }}"
+      ansible.builtin.assert:
+        that: acl_topics == (item.item.topics | sort)
+        fail_msg: "{{ item.item.username }} : ACL sur {{ acl_topics }}, attendu {{ item.item.topics | sort }}."
+        success_msg: "{{ item.item.username }} : écriture limitée à {{ item.item.topics | length }} topics."
+      loop: "{{ otel_publisher_acls.results }}"
+      loop_control:
+        label: "{{ item.item.username }}"
+
+    - name: Tenter une écriture hors des topics attribués
+      vars:
+        probes: >-
+          {%- set probes = [] -%}
+          {%- for publisher in otel_kafka_publishers -%}
+          {%- set _ = probes.append({'publisher': publisher, 'topic': otel_unregistered_topic}) -%}
+          {%- set foreign = otel_topics | difference(publisher.topics) -%}
+          {%- if foreign -%}
+          {%- set _ = probes.append({'publisher': publisher, 'topic': foreign | first}) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ probes }}
+      ansible.builtin.shell:
+        cmd: >-
+          echo acl-probe | podman exec -i --env KAFKA_OPTS= observability-otel-kafka
+          /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092
+          --topic {{ item.topic }}
+          --producer-property security.protocol=SASL_PLAINTEXT
+          --producer-property sasl.mechanism=SCRAM-SHA-512
+          --producer-property 'sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="{{ item.publisher.username }}" password="{{ (otel_kafka_secret ~ ':' ~ item.publisher.username) | hash('sha256') }}";'
+          --producer-property max.block.ms=10000
+          --producer-property delivery.timeout.ms=15000
+          --producer-property request.timeout.ms=10000 2>&1
+      loop: "{{ probes }}"
+      loop_control:
+        label: "{{ item.publisher.username }} -> {{ item.topic }}"
+      register: otel_acl_probes
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    # Résultats réduits au producteur, au topic et à l'erreur : les
+    # résultats bruts contiennent le mot de passe et ne sont pas affichés.
+    - name: Extraire le verdict de chaque tentative
+      ansible.builtin.set_fact:
+        otel_acl_verdicts: >-
+          {%- set verdicts = [] -%}
+          {%- for result in otel_acl_probes.results -%}
+          {%- set _ = verdicts.append({
+                'label': result.item.publisher.username ~ ' -> ' ~ result.item.topic,
+                'refused': 'TopicAuthorizationException' in result.stdout,
+                'error': result.stdout_lines | select('search', 'Exception') | first | default('aucune erreur')}) -%}
+          {%- endfor -%}
+          {{ verdicts }}
+
+    - name: Vérifier que chaque écriture a été refusée par les ACL
+      ansible.builtin.assert:
+        that: item.refused
+        fail_msg: "{{ item.label }} : écriture non refusée par les ACL ({{ item.error }})."
+        success_msg: "{{ item.label }} : refusé."
+      loop: "{{ otel_acl_verdicts }}"
+      loop_control:
+        label: "{{ item.label }}"

@@ -1,0 +1,42 @@
+---
+# Plateformes servies par ce collecteur Edge (ADR-020) : celles du registre
+# otel_platforms (group_vars/all.yml) dont il est publisher. Il publie une
+# ressource dans le topic de la plateforme qu'elle déclare si elle est dans
+# cette liste, et la rejette sinon. Les VM rattachées (hôtes dont otel_edge
+# désigne cet Edge) fournissent leur clé Bearer et doivent déclarer une
+# plateforme servie.
+- name: Déterminer les plateformes servies et les VM rattachées à ce collecteur Edge
+  ansible.builtin.set_fact:
+    otel_edge_platform_keys: >-
+      {{ otel_platforms | default([])
+         | selectattr('publishers', 'defined')
+         | selectattr('publishers', 'contains', inventory_hostname)
+         | map(attribute='platform') | zip(otel_platforms | default([])
+           | selectattr('publishers', 'defined')
+           | selectattr('publishers', 'contains', inventory_hostname)
+           | map(attribute='environment'))
+         | map('join', '-') | list }}
+    otel_edge_hosts: >-
+      {{ groups['all'] | map('extract', hostvars)
+         | selectattr('otel_edge', 'defined')
+         | selectattr('otel_edge', 'equalto', inventory_hostname)
+         | map(attribute='inventory_hostname') | sort }}
+
+- name: Vérifier les plateformes servies par le Collecteur EDOT Edge
+  vars:
+    otel_edge_host_keys: >-
+      {{ otel_edge_hosts | map('extract', hostvars, 'otel_platform') | map('default', '') | zip(
+         otel_edge_hosts | map('extract', hostvars, 'otel_environment') | map('default', ''))
+         | map('join', '-') | list }}
+  ansible.builtin.assert:
+    that:
+      - otel_edge_platform_keys | length > 0
+      - otel_edge_platform_keys | select('match', '^[a-z0-9_]+-[a-z0-9_]+$') | list | length == otel_edge_platform_keys | length
+      - otel_edge_hosts | length > 0
+      - otel_edge_host_keys | difference(otel_edge_platform_keys) | length == 0
+    fail_msg: >-
+      {{ inventory_hostname }} doit être publisher d'au moins une plateforme
+      de otel_platforms (platform et environment en [a-z0-9_]), et chaque VM
+      rattachée ({{ otel_edge_hosts | join(', ') }}) doit déclarer une
+      plateforme servie par cet Edge ; servies : {{ otel_edge_platform_keys | join(', ') }}.
+    quiet: true

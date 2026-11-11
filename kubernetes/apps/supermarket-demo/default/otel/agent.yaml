@@ -1,0 +1,95 @@
+# Configuration déclarative de l'agent Java OpenTelemetry 2.28.1 des trois
+# services supermarché (OTEL_CONFIG_FILE). Elle remplace toute la
+# configuration par variables et propriétés : seules les valeurs
+# substituées ${...} viennent de l'environnement du pod. Schéma :
+# https://github.com/open-telemetry/opentelemetry-configuration
+file_format: "1.0"
+
+# Identité du pod : service.name, plateforme, environnement, cluster,
+# namespace, pod et nœud viennent de OTEL_RESOURCE_ATTRIBUTES du patch
+# d'instrumentation (ADR-020).
+resource:
+  attributes:
+    - name: service.version
+      value: 1.0.0
+  attributes_list: ${OTEL_RESOURCE_ATTRIBUTES}
+
+# Contexte W3C propagé dans les appels REST et les en-têtes Kafka.
+propagator:
+  composite:
+    - tracecontext:
+    - baggage:
+
+# Les trois signaux partent en OTLP HTTP vers le collecteur Edge, avec la
+# clé Bearer du secret otel-edge-client-keys.
+tracer_provider:
+  processors:
+    - batch:
+        exporter:
+          otlp_http:
+            endpoint: http://otel-edge-vm.elastic-stack.svc.cluster.local:4318/v1/traces
+            headers_list: ${OTEL_EXPORTER_OTLP_HEADERS}
+
+# Métriques de l'agent : runtime JVM et HTTP, lues par l'onglet Metrics de
+# l'UI APM. Les métriques métier restent émises par Micrometer OTLP.
+meter_provider:
+  readers:
+    - periodic:
+        interval: 15000
+        exporter:
+          otlp_http:
+            endpoint: http://otel-edge-vm.elastic-stack.svc.cluster.local:4318/v1/metrics
+            headers_list: ${OTEL_EXPORTER_OTLP_HEADERS}
+
+# Logs Logback exportés en OTLP natif, corrélés aux traces (ADR-012).
+logger_provider:
+  processors:
+    - batch:
+        exporter:
+          otlp_http:
+            endpoint: http://otel-edge-vm.elastic-stack.svc.cluster.local:4318/v1/logs
+            headers_list: ${OTEL_EXPORTER_OTLP_HEADERS}
+
+instrumentation/development:
+  java:
+    common:
+      http:
+        client:
+          # Nom des spans HTTP client (ADR-011) : sans gabarit, la convention
+          # nomme un span client par sa seule méthode (« POST »). Chaque règle
+          # applique une expression régulière, ancrée, à l'URL complète
+          # (url.full) et en tire le gabarit url.template par remplacement
+          # ($1, $2…) ; le span devient « {méthode} {gabarit} ». La
+          # première règle qui correspond l'emporte.
+          # Règles génériques, sans liste d'URL : le gabarit est le chemin,
+          # sans requête ni fragment, où un segment identifiant devient {id},
+          # pour borner la cardinalité des noms. Est identifiant un segment
+          # entièrement numérique, un UUID, une suite hexadécimale d'au moins
+          # 16 caractères, ou un code en majuscules, chiffres, « - » et « _ »
+          # contenant au moins un chiffre (PASTA-500G) ; v1 ou api sont
+          # conservés. Au-delà de deux identifiants, les suivants restent tels
+          # quels. Les règles exigent la télémétrie HTTP client
+          # expérimentale. Seul le client HTTP du JDK, sous RestTemplate,
+          # reprend le gabarit dans le nom ; HttpURLConnection, utilisé par
+          # l'export Micrometer, ne pose que l'attribut.
+          emit_experimental_telemetry/development: true
+          url_template_rules:
+            # Deux identifiants : /api/products/PASTA-500G/items/123
+            # → /api/products/{id}/items/{id}
+            - pattern: 'https?://[^/]+(/[^?#]*?)/(?:[0-9]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,}|[A-Z0-9_-]*[0-9][A-Z0-9_-]*)(/[^?#]*?)/(?:[0-9]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,}|[A-Z0-9_-]*[0-9][A-Z0-9_-]*)(/[^?#]*)?(?:[?#].*)?'
+              template: '$1/{id}$2/{id}$3'
+            # Un identifiant : /api/orders/<uuid> → /api/orders/{id}
+            - pattern: 'https?://[^/]+(/[^?#]*?)/(?:[0-9]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,}|[A-Z0-9_-]*[0-9][A-Z0-9_-]*)(/[^?#]*)?(?:[?#].*)?'
+              template: '$1/{id}$2'
+            # Aucun identifiant : /api/reservations → /api/reservations
+            - pattern: 'https?://[^/]+(/[^?#]*)(?:[?#].*)?'
+              template: '$1'
+    # Métriques JVM expérimentales : jvm.system.cpu.utilization,
+    # jvm.buffer.memory.used.
+    runtime_telemetry:
+      emit_experimental_metrics/development: true
+    # Les paires clé-valeur SLF4J (addKeyValue) deviennent des attributs du
+    # log ; experimental_log_attributes ajoute thread.name et thread.id.
+    logback_appender:
+      capture_key_value_pair_attributes/development: true
+      experimental_log_attributes/development: true

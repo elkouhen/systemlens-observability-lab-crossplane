@@ -1,0 +1,12 @@
+# otel-backend-01 : nom, IP privée, mémoire et disque de la VM
+base: ./base.yaml
+memory: 3GiB
+disk: 20GiB
+ssh:
+  localPort: 2252
+param:
+  HOSTNAME: otel-backend-01
+  NODE_IP: 192.168.33.20
+portForwards:
+  - guestPortRange: [1, 65535]
+    ignore: true

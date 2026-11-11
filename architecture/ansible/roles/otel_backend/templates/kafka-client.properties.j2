@@ -1,0 +1,3 @@
+security.protocol=SASL_PLAINTEXT
+sasl.mechanism=PLAIN
+sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="{{ otel_kafka_admin_username }}" password="{{ otel_kafka_admin_password }}";

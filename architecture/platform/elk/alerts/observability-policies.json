@@ -1,0 +1,148 @@
+{
+  "slos": [
+    {
+      "id": "supermarket-app-availability",
+      "name": "Disponibilité des services Supermarket",
+      "description": "99,5 % des scrapes Actuator doivent réussir sur une fenêtre glissante de 30 jours.",
+      "indicator": {
+        "type": "sli.kql.custom",
+        "params": {
+          "index": "metrics-generic.otel-supermarche_*",
+          "filter": "",
+          "good": "metrics.up : 1",
+          "total": "metrics.up : *",
+          "timestampField": "@timestamp"
+        }
+      },
+      "groupBy": "resource.attributes.service.name",
+      "objective": {"target": 0.995},
+      "timeWindow": {"duration": "30d", "type": "rolling"},
+      "budgetingMethod": "occurrences",
+      "settings": {"frequency": "5m", "syncDelay": "5m", "preventInitialBackfill": true},
+      "tags": ["systemlens", "architecture", "availability"],
+      "artifacts": {"dashboards": [{"id": "business-metrics-dashboard"}]}
+    },
+    {
+      "id": "supermarket-bread-sales-slo",
+      "name": "Pains achetés — minimum 10 par jour",
+      "description": "99 % des périodes de 24 heures doivent comptabiliser au moins 10 pains BREAD-WHOLE achetés par les clients, sur 30 jours glissants.",
+      "indicator": {
+        "type": "sli.metric.timeslice",
+        "params": {
+          "index": "logs-*",
+          "filter": "event.action : \"product_sale_completed\" and product.id : \"BREAD-WHOLE\"",
+          "timestampField": "@timestamp",
+          "metric": {
+            "metrics": [
+              {
+                "name": "A",
+                "aggregation": "sum",
+                "field": "business.units_sold"
+              }
+            ],
+            "equation": "A",
+            "comparator": "GTE",
+            "threshold": 10
+          }
+        }
+      },
+      "objective": {"target": 0.99, "timesliceTarget": 0.99, "timesliceWindow": "24h"},
+      "timeWindow": {"duration": "30d", "type": "rolling"},
+      "budgetingMethod": "timeslices",
+      "settings": {"frequency": "5m", "syncDelay": "5m", "preventInitialBackfill": false},
+      "tags": ["systemlens", "architecture", "business", "bread"],
+      "artifacts": {"dashboards": [{"id": "business-metrics-dashboard"}]}
+    }
+  ],
+  "rules": [
+    {
+      "id": "otel-collector-export-failures",
+      "body": {
+        "name": "V3 — échecs d'export OTel",
+        "tags": ["systemlens", "architecture", "collector", "critical"],
+        "rule_type_id": ".es-query",
+        "consumer": "stackAlerts",
+        "schedule": {"interval": "1m"},
+        "actions": [],
+        "params": {
+          "index": ["metrics-collectortelemetry.otel-*"],
+          "timeField": "@timestamp",
+          "searchType": "esQuery",
+          "esQuery": "{\"query\":{\"bool\":{\"should\":[{\"range\":{\"metrics.otelcol_exporter_send_failed_spans\":{\"gt\":0}}},{\"range\":{\"metrics.otelcol_exporter_send_failed_metric_points\":{\"gt\":0}}},{\"range\":{\"metrics.otelcol_exporter_send_failed_log_records\":{\"gt\":0}}}],\"minimum_should_match\":1}}}",
+          "size": 100,
+          "threshold": [0],
+          "thresholdComparator": ">",
+          "timeWindowSize": 5,
+          "timeWindowUnit": "m"
+        }
+      }
+    },
+    {
+      "id": "otel-collector-queue-saturation",
+      "body": {
+        "name": "V3 — queue OTel presque saturée",
+        "tags": ["systemlens", "architecture", "collector", "warning"],
+        "rule_type_id": ".es-query",
+        "consumer": "stackAlerts",
+        "schedule": {"interval": "1m"},
+        "actions": [],
+        "params": {
+          "index": ["metrics-collectortelemetry.otel-*"],
+          "timeField": "@timestamp",
+          "searchType": "esQuery",
+          "esQuery": "{\"query\":{\"range\":{\"metrics.otelcol_exporter_queue_size\":{\"gte\":800}}}}",
+          "size": 100,
+          "threshold": [0],
+          "thresholdComparator": ">",
+          "timeWindowSize": 5,
+          "timeWindowUnit": "m"
+        }
+      }
+    },
+    {
+      "id": "supermarket-actuator-scrape-failure",
+      "body": {
+        "name": "V3 — scrape Actuator indisponible",
+        "tags": ["systemlens", "architecture", "application", "critical"],
+        "rule_type_id": ".es-query",
+        "consumer": "stackAlerts",
+        "schedule": {"interval": "1m"},
+        "actions": [],
+        "params": {
+          "index": ["metrics-*.otel-*"],
+          "timeField": "@timestamp",
+          "searchType": "esQuery",
+          "esQuery": "{\"query\":{\"term\":{\"metrics.up\":0}}}",
+          "size": 100,
+          "threshold": [0],
+          "thresholdComparator": ">",
+          "timeWindowSize": 5,
+          "timeWindowUnit": "m"
+        }
+      }
+    },
+    {
+      "id": "supermarket-bread-sales-daily-objective",
+      "body": {
+        "name": "V3 — objectif quotidien de ventes de pain non atteint",
+        "tags": ["systemlens", "architecture", "business", "sla", "bread"],
+        "rule_type_id": ".es-query",
+        "consumer": "stackAlerts",
+        "schedule": {"interval": "1h"},
+        "actions": [],
+        "params": {
+          "searchType": "esqlQuery",
+          "esqlQuery": {
+            "esql": "SET unmapped_fields=\"NULLIFY\"; FROM logs-* | WHERE event.action == \"product_sale_completed\" AND product.id == \"BREAD-WHOLE\" | EVAL units = TO_LONG(business.units_sold) | STATS bread_units_sold = SUM(units) | EVAL bread_units_sold = COALESCE(bread_units_sold, 0) | WHERE bread_units_sold < 10"
+          },
+          "timeField": "@timestamp",
+          "size": 0,
+          "threshold": [0],
+          "thresholdComparator": ">",
+          "timeWindowSize": 1,
+          "timeWindowUnit": "d"
+        }
+      }
+    }
+  ]
+}

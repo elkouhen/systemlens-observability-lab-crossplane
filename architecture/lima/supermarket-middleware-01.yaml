@@ -1,0 +1,13 @@
+# supermarket-middleware-01 : nom, IP privée, mémoire et disque de la VM
+base: ./base.yaml
+memory: 3GiB
+disk: 20GiB
+ssh:
+  localPort: 2251
+param:
+  HOSTNAME: supermarket-middleware-01
+  NODE_IP: 192.168.33.10
+portForwards:
+  - {guestPort: 4318, hostPort: 14318, hostIP: 127.0.0.1}
+  - guestPortRange: [1, 65535]
+    ignore: true

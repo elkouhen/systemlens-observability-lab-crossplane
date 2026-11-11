@@ -1,0 +1,31 @@
+# Règles d'alerte Kibana déclarées (provider Terraform elastic/elasticstack, ressource dédiée).
+# Remplace sync-observability-policies.sh puis les Request provider-http des 4 règles.
+# Les règles de platform/elk/alerts/observability-policies.json sont passées telles quelles via le
+# ConfigMap elastic-assets (scripts/assets.sh). Le tableau slos du même fichier n'est plus déployé.
+apiVersion: tf.m.upbound.io/v1beta1
+kind: Workspace
+metadata:
+  name: kibana-alerting
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: elastic}
+  forProvider:
+    source: Inline
+    varFiles:
+      - source: ConfigMapKey
+        configMapKeyRef: {name: elastic-assets, key: kibana-alerting.tfvars.json}
+        format: JSON
+    module: |
+      variable "rules" { type = any }
+
+      resource "elasticstack_kibana_alerting_rule" "rule" {
+        for_each     = { for rule in var.rules : rule.id => rule.body }
+        rule_id      = each.key
+        name         = each.value.name
+        consumer     = each.value.consumer
+        rule_type_id = each.value.rule_type_id
+        interval     = each.value.schedule.interval
+        enabled      = try(each.value.enabled, true)
+        tags         = each.value.tags
+        params       = jsonencode(each.value.params)
+      }

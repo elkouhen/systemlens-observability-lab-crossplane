@@ -1,0 +1,7 @@
+[Unit]
+Description=Suppression des archives de logs du lab de plus de 24 h
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/observability-purge-logs.py
+ExecStart=/usr/bin/journalctl --rotate --vacuum-time=1d --vacuum-size=256M

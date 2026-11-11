@@ -1,0 +1,11 @@
+---
+# Applique seule la configuration chrony du rôle common aux cinq VM
+# (make time-sync-apply), sans redéployer les autres composants.
+- name: Synchronisation horaire des VM
+  hosts: all
+  become: true
+  tasks:
+    - name: Configurer chrony et sa reprise après suspension
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: chrony.yml

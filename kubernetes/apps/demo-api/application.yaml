@@ -1,0 +1,21 @@
+# API de démonstration des signaux, déclarée comme une Application Crossplane
+# (platform/crossplane/applications). Un namespace est une plateforme dans un environnement
+# (ADR-015) : h0tl-demo-app héberge la plateforme demo en homologation, que le pod déclare par
+# platform.id et deployment.environment.name (ADR-020) ; la plateforme doit être attribuée à
+# l'Edge dans le registre des plateformes (platform/crossplane/platforms.yaml).
+# Appliquer avec make demo-api-deploy : scripts/applications.py remplace agentConfigFile par le
+# contenu du fichier et DEMO_API_IMAGE_TAG fixe le tag de l'image.
+---
+apiVersion: apps.lab.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-api
+  namespace: h0tl-demo-app
+spec:
+  image: {name: demo-api, tag: 1.1.1}
+  port: 3010
+  # Pas de probePath : sondes TCP, sans transaction APM parasite.
+  memoryLimit: 384Mi
+  otel:
+    platform: demo
+    agentConfigFile: default/otel/agent.yaml

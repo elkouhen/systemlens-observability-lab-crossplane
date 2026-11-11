@@ -1,0 +1,15 @@
+# elk-01 : nom, IP privée, mémoire et disque de la VM
+base: ./base.yaml
+memory: 6GiB
+disk: 30GiB
+ssh:
+  localPort: 2254
+param:
+  HOSTNAME: elk-01
+  NODE_IP: 192.168.33.40
+portForwards:
+  - {guestPort: 9200, hostIP: 127.0.0.1}
+  - {guestPort: 5601, hostIP: 127.0.0.1}
+  - {guestPort: 8220, hostIP: 127.0.0.1}
+  - guestPortRange: [1, 65535]
+    ignore: true

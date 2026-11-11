@@ -1,0 +1,160 @@
+asyncapi: 3.0.0
+info:
+  title: API asynchrone des stocks du supermarché
+  version: v1
+  description: Traitement des commandes en ligne, signalement des ruptures et application des réassorts.
+defaultContentType: application/json
+servers:
+  kafka:
+    host: '{bootstrapServers}'
+    protocol: kafka
+    description: Cluster Kafka configuré par SPRING_KAFKA_BOOTSTRAP_SERVERS.
+    variables:
+      bootstrapServers:
+        default: localhost:9092
+channels:
+  onlineOrders:
+    address: supermarket.order.placed
+    title: Commandes en ligne passées
+    description: Commandes publiées par order-service à traiter par inventory-service.
+    messages:
+      orderPlaced:
+        $ref: '#/components/messages/OrderPlaced'
+    bindings:
+      kafka:
+        bindingVersion: '0.5.0'
+  depletedStocks:
+    address: supermarket.stock.depleted
+    title: Stocks épuisés
+    description: Événement publié lorsque la dernière unité d'un produit est réservée.
+    messages:
+      stockDepleted:
+        $ref: '#/components/messages/StockDepleted'
+    bindings:
+      kafka:
+        bindingVersion: '0.5.0'
+  restockRequests:
+    address: supermarket.stock.restock-requested
+    title: Demandes de réassort
+    description: Demandes publiées par restock-service et appliquées par inventory-service.
+    messages:
+      stockRestockRequested:
+        $ref: '#/components/messages/StockRestockRequested'
+    bindings:
+      kafka:
+        bindingVersion: '0.5.0'
+operations:
+  receiveOnlineOrder:
+    action: receive
+    title: Traiter une commande en ligne
+    summary: Réserve le stock pour une commande reçue du topic des commandes.
+    channel:
+      $ref: '#/channels/onlineOrders'
+    messages:
+      - $ref: '#/channels/onlineOrders/messages/orderPlaced'
+    bindings:
+      kafka:
+        groupId:
+          type: string
+          enum: [inventory-service]
+        bindingVersion: '0.5.0'
+  publishStockDepleted:
+    action: send
+    title: Signaler un stock épuisé
+    summary: Émet un événement lorsqu'une réservation épuise le stock d'un produit.
+    channel:
+      $ref: '#/channels/depletedStocks'
+    messages:
+      - $ref: '#/channels/depletedStocks/messages/stockDepleted'
+  receiveRestockRequest:
+    action: receive
+    title: Appliquer une demande de réassort
+    summary: Augmente le stock pour une demande provenant de restock-service.
+    channel:
+      $ref: '#/channels/restockRequests'
+    messages:
+      - $ref: '#/channels/restockRequests/messages/stockRestockRequested'
+    bindings:
+      kafka:
+        groupId:
+          type: string
+          enum: [inventory-restock-service]
+        bindingVersion: '0.5.0'
+components:
+  messages:
+    OrderPlaced:
+      name: OrderPlaced
+      title: Commande passée
+      payload:
+        $ref: '#/components/schemas/OrderPlaced'
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Identifiant de la commande, utilisé comme clé Kafka.
+          bindingVersion: '0.5.0'
+    StockDepleted:
+      name: StockDepleted
+      title: Stock épuisé
+      payload:
+        $ref: '#/components/schemas/StockDepleted'
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Identifiant du produit, utilisé comme clé Kafka.
+          bindingVersion: '0.5.0'
+    StockRestockRequested:
+      name: StockRestockRequested
+      title: Réassort demandé
+      payload:
+        $ref: '#/components/schemas/StockRestockRequested'
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Identifiant du produit, utilisé comme clé Kafka.
+          bindingVersion: '0.5.0'
+  schemas:
+    OrderPlaced:
+      type: object
+      required: [orderId, productId, quantity, requestedAt]
+      properties:
+        orderId:
+          type: string
+          description: Identifiant unique de la commande.
+        productId:
+          type: string
+          example: PASTA-500G
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+        requestedAt:
+          type: string
+          format: date-time
+    StockDepleted:
+      type: object
+      required: [productId, occurredAt]
+      properties:
+        productId:
+          type: string
+          example: PASTA-500G
+        occurredAt:
+          type: string
+          format: date-time
+    StockRestockRequested:
+      type: object
+      required: [productId, quantity, requestedAt]
+      properties:
+        productId:
+          type: string
+          example: PASTA-500G
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          example: 500
+        requestedAt:
+          type: string
+          format: date-time

@@ -1,0 +1,14 @@
+# otel-edge-01 : nom, IP privée, mémoire et disque de la VM
+base: ./base.yaml
+memory: 2GiB
+disk: 20GiB
+ssh:
+  localPort: 2253
+param:
+  HOSTNAME: otel-edge-01
+  NODE_IP: 192.168.33.30
+portForwards:
+  - {guestPort: 4317, hostIP: 127.0.0.1}
+  - {guestPort: 4318, hostIP: 127.0.0.1}
+  - guestPortRange: [1, 65535]
+    ignore: true

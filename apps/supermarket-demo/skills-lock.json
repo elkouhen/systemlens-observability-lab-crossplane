@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "systemlens": {
+      "source": "elkouhen/systemlens-skill",
+      "sourceType": "github",
+      "skillPath": "skills/systemlens/SKILL.md",
+      "computedHash": "4d6c0f20ce9c71f0b84c390d279a5ef745e5c25f2c18be9951f177bbf178c83c"
+    }
+  }
+}

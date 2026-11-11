@@ -1,0 +1,19 @@
+# Valeurs déclaratives de la release Helm `elastic-stack`.
+# Les versions Elasticsearch et Kibana sont pilotées par
+# ELASTIC_STACK_VERSION dans le Makefile.
+eck-elasticsearch:
+  fullnameOverride: elasticsearch
+  nodeSets:
+    - name: default
+      count: 1
+      config:
+        node.store.allow_mmap: false
+      podTemplate:
+        spec:
+          containers:
+            - name: elasticsearch
+              resources:
+                requests:
+                  memory: 1Gi
+                limits:
+                  memory: 1Gi

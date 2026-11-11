@@ -1,0 +1,53 @@
+---
+# Registre des plateformes otel_platforms (group_vars/all.yml ; ADR-015,
+# ADR-017, ADR-020) : contrôle du format, unicité des couples
+# plateforme-environnement et présence des publishers. Les topics, les
+# comptes Kafka des producteurs et les plateformes servies par chaque Edge en
+# découlent. La cohérence des VM avec le registre est vérifiée par
+# inventory-check.yml (make otel-config-validate).
+- name: Déterminer les plateformes et les topics OTel
+  ansible.builtin.set_fact:
+    otel_platform_keys: >-
+      {{ otel_platforms | map(attribute='platform', default='')
+         | zip(otel_platforms | map(attribute='environment', default=''))
+         | map('join', '-') | list }}
+
+- name: Vérifier la liste des plateformes
+  ansible.builtin.assert:
+    that:
+      - otel_platforms | length > 0
+      - otel_platform_keys | select('match', '^[a-z0-9_]+-[a-z0-9_]+$') | list | length == otel_platforms | length
+      - otel_platform_keys | unique | list | length == otel_platforms | length
+      - otel_platforms | map(attribute='publishers', default=[]) | map('length') | select('equalto', 0) | list | length == 0
+      - otel_platforms | map(attribute='publishers', default=[]) | flatten | difference(groups['all']) | length == 0
+    fail_msg: >-
+      otel_platforms invalide : chaque entrée déclare platform et environment
+      en [a-z0-9_], le couple est unique, et publishers liste au moins un
+      hôte de l'inventaire.
+    quiet: true
+
+# Un compte par producteur, otel_publisher_<hôte>, avec les topics de ses
+# plateformes. Aucun mot de passe ici, cette liste est affichée par les
+# boucles : il est dérivé là où il sert (kafka-jaas.conf.j2), comme dans
+# group_vars/all.yml.
+- name: Déterminer les topics OTel et les comptes des producteurs
+  vars:
+    otel_signals: [logs, metrics, traces]
+  ansible.builtin.set_fact:
+    otel_topics: >-
+      {{ otel_signals | product(otel_platform_keys)
+         | map('join', '-') | map('regex_replace', '^', 'otel-') | list }}
+    otel_kafka_publishers: >-
+      {%- set publishers = [] -%}
+      {%- for host in otel_platforms | map(attribute='publishers') | flatten | unique | sort -%}
+      {%- set username = 'otel_publisher_' ~ (host | replace('-', '_')) -%}
+      {%- set keys = [] -%}
+      {%- for entry in otel_platforms if host in entry.publishers -%}
+      {%- set _ = keys.append(entry.platform ~ '-' ~ entry.environment) -%}
+      {%- endfor -%}
+      {%- set _ = publishers.append({
+            'host': host,
+            'username': username,
+            'topics': otel_signals | product(keys) | map('join', '-') | map('regex_replace', '^', 'otel-') | list}) -%}
+      {%- endfor -%}
+      {{ publishers }}

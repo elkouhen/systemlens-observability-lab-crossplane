@@ -1,0 +1,61 @@
+server:
+  port: 3001
+
+spring:
+  data:
+    mongodb:
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb://192.168.33.10:27017,192.168.33.11:27017,192.168.33.12:27017/observability_test?replicaSet=observability-rs}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://192.168.33.10:5432/observability_test}
+    username: ${SPRING_DATASOURCE_USERNAME:observability}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:192.168.33.10:9092,192.168.33.11:9092,192.168.33.12:9092}
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: io.systemlens.supermarket.contract,io.systemlens.supermarket.contract.generated.event
+        # Compatibilité avec les messages publiés avant le déplacement des
+        # contrats vers le package généré.
+        spring.json.type.mapping: io.systemlens.supermarket.contract.OrderPlaced:io.systemlens.supermarket.contract.generated.event.OrderPlaced
+        allow.auto.create.topics: false
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        linger.ms: 5
+        batch.size: 16384
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    url: /openapi.yaml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  metrics:
+    enable:
+      kafka: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        business.kafka.message.processing: true
+      percentiles:
+        http.server.requests: 0.5,0.95,0.99
+        business.kafka.message.processing: 0.5,0.95,0.99
+  export:
+    prometheus:
+      enabled: true

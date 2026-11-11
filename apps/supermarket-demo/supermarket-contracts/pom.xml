@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.systemlens.supermarket</groupId>
+        <artifactId>supermarket-demo-parent</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>supermarket-contracts</artifactId>
+
+    <dependencies>
+        <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>prepare-asyncapi-generated-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${project.build.directory}/generated-sources/asyncapi/io/systemlens/supermarket/contract/generated/event" />
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>dev.banking.asyncapi.generator</groupId>
+                <artifactId>asyncapi-generator-maven-plugin</artifactId>
+                <version>${asyncapi.generator.version}</version>
+                <executions>
+                    <execution>
+                        <id>generate-asyncapi-contract</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <generatorName>java</generatorName>
+                            <inputFile>${project.basedir}/../inventory-service/src/main/resources/static/asyncapi.yaml</inputFile>
+                            <modelPackage>io.systemlens.supermarket.contract.generated.event</modelPackage>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

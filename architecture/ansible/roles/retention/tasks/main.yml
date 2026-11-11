@@ -1,0 +1,78 @@
+---
+- name: Installer logrotate
+  ansible.builtin.package:
+    name: logrotate
+    state: present
+
+- name: Créer le répertoire de configuration journald
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: '0755'
+
+- name: Borner les journaux systemd et Podman
+  ansible.builtin.copy:
+    src: journald.conf
+    dest: /etc/systemd/journald.conf.d/observability-retention.conf
+    mode: '0644'
+  register: retention_journal
+
+- name: Appliquer la configuration journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted
+  when: retention_journal.changed
+
+- name: Configurer la rotation quotidienne des logs fichiers
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "/etc/logrotate.d/{{ item.dest }}"
+    mode: '0644'
+  loop:
+    - {src: middleware.logrotate, dest: observability}
+    - {src: syslog.logrotate, dest: rsyslog}
+
+- name: Retirer la règle HAProxy remplacée par la règle rsyslog commune
+  ansible.builtin.file:
+    path: /etc/logrotate.d/haproxy
+    state: absent
+
+- name: Vérifier la configuration logrotate sans supprimer de logs
+  ansible.builtin.command: logrotate --debug /etc/logrotate.conf
+  changed_when: false
+
+- name: Activer la rotation quotidienne
+  ansible.builtin.systemd_service:
+    name: logrotate.timer
+    enabled: true
+    state: started
+
+- name: Créer le répertoire des scripts opérateur
+  ansible.builtin.file:
+    path: /usr/local/libexec
+    state: directory
+    mode: '0755'
+
+- name: Déployer la suppression des archives natives de plus de 24 h
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: '0644'
+  register: retention_cleanup
+  loop:
+    - {src: purge-logs.py, dest: /usr/local/libexec/observability-purge-logs.py}
+    - {src: purge-logs.service, dest: /etc/systemd/system/observability-purge-logs.service}
+    - {src: purge-logs.timer, dest: /etc/systemd/system/observability-purge-logs.timer}
+
+- name: Activer la suppression horaire des archives expirées
+  ansible.builtin.systemd_service:
+    name: observability-purge-logs.timer
+    daemon_reload: true
+    enabled: true
+    state: started
+
+- name: Exécuter le nettoyage après mise à jour de ses règles
+  ansible.builtin.systemd_service:
+    name: observability-purge-logs.service
+    state: started
+  when: retention_cleanup.changed or retention_journal.changed

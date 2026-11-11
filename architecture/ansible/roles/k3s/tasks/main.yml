@@ -1,0 +1,158 @@
+---
+- name: Installer les dépendances réseau k3s
+  ansible.builtin.package:
+    name: [iptables, conntrack, iproute2]
+    state: present
+
+- name: Charger les modules noyau réseau requis par k3s
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: [br_netfilter, overlay, nf_conntrack, iptable_filter, iptable_nat]
+
+- name: Configurer les paramètres réseau du cluster
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop:
+    - {name: net.ipv4.ip_forward, value: '1'}
+    - {name: net.bridge.bridge-nf-call-iptables, value: '1'}
+    - {name: net.bridge.bridge-nf-call-ip6tables, value: '1'}
+
+- name: Désactiver le swap pour k3s
+  ansible.builtin.command: swapoff -a
+  changed_when: false
+
+- name: Désactiver le swap au redémarrage
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\s+swap\s+.*)$'
+    replace: '# \1'
+
+- name: Créer le répertoire de configuration k3s
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    mode: '0755'
+
+- name: Déclarer la configuration du serveur k3s
+  ansible.builtin.copy:
+    dest: /etc/rancher/k3s/config.yaml
+    mode: '0644'
+    content: |
+      write-kubeconfig-mode: "0600"
+      node-name: k3s-01
+      tls-san:
+        - {{ k3s_ip }}
+  register: k3s_configuration
+
+- name: Vérifier la présence du binaire k3s
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Vérifier la présence de l'unité systemd k3s
+  ansible.builtin.stat:
+    path: /etc/systemd/system/k3s.service
+  register: k3s_unit
+
+# Installation à partir du cache local (lab-cache) : script d'installation, binaire et images
+# système de la version déclarée (archive airgap), téléchargés une seule fois. Les images du lab
+# sauvegardées après un déploiement réussi (make cache-save-k3s-images, une archive par image) sont
+# importées par k3s au premier démarrage, comme l'archive airgap.
+- name: Préparer le script d'installation, le binaire et les images système de k3s
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/lab-cache, file, "{{ item.url }}", "{{ item.dest }}", "{{ item.mode }}"]
+  loop:
+    - url: "{{ k3s_install_script_url }}"
+      dest: "/var/cache/observability/k3s-install-{{ k3s_version }}.sh"
+      mode: '0755'
+    - url: "{{ k3s_release_url }}/{{ 'k3s-arm64' if k3s_arch == 'arm64' else 'k3s' }}"
+      dest: /usr/local/bin/k3s
+      mode: '0755'
+    - url: "{{ k3s_release_url }}/k3s-airgap-images-{{ k3s_arch }}.tar.zst"
+      dest: "/var/lib/rancher/k3s/agent/images/k3s-airgap-images-{{ k3s_arch }}.tar.zst"
+      mode: '0644'
+  vars:
+    k3s_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+    k3s_release_url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version | replace('+', '%2B') }}"
+  register: k3s_downloads
+  changed_when: k3s_downloads.stdout_lines[-1] != 'present'
+  when: not k3s_binary.stat.exists or not k3s_unit.stat.exists
+
+- name: Reprendre les images du lab sauvegardées dans le cache local
+  ansible.builtin.shell: |
+    set -euo pipefail
+    n=0
+    for f in /var/cache/lab/k3s/images/lab-*.tar; do
+      [ -s "$f" ] || continue
+      # Archive illisible : ignorée, k3s retéléchargera cette image.
+      [ "$(tar -tf "$f" 2>/dev/null | grep -cxE "index.json|manifest.json|oci-layout")" = 3 ] || continue
+      cp "$f" /var/lib/rancher/k3s/agent/images/; n=$((n + 1))
+    done
+    echo "$n"
+  args:
+    executable: /bin/bash
+  register: k3s_lab_images
+  changed_when: k3s_lab_images.stdout != '0'
+  when: not k3s_unit.stat.exists
+
+- name: Installer k3s serveur avec une version déclarée
+  ansible.builtin.command:
+    argv: ["/var/cache/observability/k3s-install-{{ k3s_version }}.sh", server]
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_SKIP_DOWNLOAD: "true"
+  when:
+    - not k3s_binary.stat.exists or not k3s_unit.stat.exists
+  notify: Redémarrer k3s
+
+- name: Recharger systemd après l'installation éventuelle de k3s
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Vérifier que l'installation k3s a créé son unité systemd
+  ansible.builtin.stat:
+    path: /etc/systemd/system/k3s.service
+  register: k3s_unit_after_install
+
+- name: Arrêter si l'unité systemd k3s est absente
+  ansible.builtin.fail:
+    msg: >-
+      L'installeur k3s a terminé sans créer /etc/systemd/system/k3s.service.
+      Vérifier la sortie de l'installeur et la distribution de la VM.
+  when: not k3s_unit_after_install.stat.exists
+
+- name: Redémarrer k3s si sa configuration a changé
+  ansible.builtin.systemd_service:
+    name: k3s.service
+    state: restarted
+  when: k3s_configuration.changed and k3s_binary.stat.exists
+
+- name: Activer et démarrer k3s
+  ansible.builtin.systemd_service:
+    name: k3s.service
+    enabled: true
+    state: started
+
+# Caches persistants des pods (install/runtime.yaml) : plugins Terraform et paquets Crossplane.
+- name: Préparer les répertoires de cache des pods
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '1777'
+  loop: [/var/cache/lab/terraform-plugins, /var/cache/lab/crossplane-packages]
+
+- name: Attendre les CRD Traefik embarquées par k3s
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get crd ingressroutes.traefik.io
+  register: traefik_crd
+  changed_when: false
+  retries: 36
+  delay: 5
+  until: traefik_crd.rc == 0
+
+- name: Retirer les archives d'images du lab une fois importées par k3s
+  ansible.builtin.shell: rm -f /var/lib/rancher/k3s/agent/images/lab-*.tar
+  changed_when: false

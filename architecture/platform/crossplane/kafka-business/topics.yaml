@@ -1,0 +1,56 @@
+# Topics métier du Kafka de supermarket-middleware-01 (remplacent le Job otel-telemetry-topics
+# et la réconciliation de rétention de ansible/retention.yml).
+---
+apiVersion: topic.kafka.m.crossplane.io/v1alpha1
+kind: Topic
+metadata:
+  name: supermarket.order.placed
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kafka-business}
+  forProvider:
+    partitions: 1
+    replicationFactor: 1
+    config:
+      min.insync.replicas: "1"
+      cleanup.policy: delete
+      retention.ms: "86400000"
+      retention.bytes: "536870912"
+      segment.ms: "3600000"
+      segment.bytes: "67108864"
+---
+apiVersion: topic.kafka.m.crossplane.io/v1alpha1
+kind: Topic
+metadata:
+  name: supermarket.stock.depleted
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kafka-business}
+  forProvider:
+    partitions: 1
+    replicationFactor: 1
+    config:
+      min.insync.replicas: "1"
+      cleanup.policy: delete
+      retention.ms: "86400000"
+      retention.bytes: "536870912"
+      segment.ms: "3600000"
+      segment.bytes: "67108864"
+---
+apiVersion: topic.kafka.m.crossplane.io/v1alpha1
+kind: Topic
+metadata:
+  name: supermarket.stock.restock-requested
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kafka-business}
+  forProvider:
+    partitions: 1
+    replicationFactor: 1
+    config:
+      min.insync.replicas: "1"
+      cleanup.policy: delete
+      retention.ms: "86400000"
+      retention.bytes: "536870912"
+      segment.ms: "3600000"
+      segment.bytes: "67108864"

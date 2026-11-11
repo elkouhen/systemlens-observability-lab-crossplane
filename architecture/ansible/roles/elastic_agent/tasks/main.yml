@@ -1,0 +1,147 @@
+---
+- name: Déterminer l’architecture Elastic Agent
+  ansible.builtin.set_fact:
+    elastic_agent_arch: "{{ 'arm64' if ansible_facts['architecture'] in ['aarch64', 'arm64'] else 'x86_64' }}"
+
+- name: Vérifier l’installation et le mode EDOT de l’agent
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /opt/Elastic/Agent/elastic-agent
+    - /etc/observability/elastic-agent-otel.mode
+  register: elastic_agent_state
+
+- name: Vérifier la version de l’agent déjà installé
+  ansible.builtin.command:
+    argv: [/opt/Elastic/Agent/elastic-agent, version]
+  register: elastic_agent_version_state
+  changed_when: false
+  failed_when: false
+  when: elastic_agent_state.results[0].stat.exists
+
+- name: Déterminer l’état cible EDOT de l’agent
+  ansible.builtin.set_fact:
+    elastic_agent_install_required: >-
+      {{ not elastic_agent_state.results[0].stat.exists or
+         not elastic_agent_state.results[1].stat.exists or
+         not (elastic_agent_version_state.stdout | default('') is search('Binary:\s*' ~ elastic_agent_version)) or
+         (elastic_agent_reinstall | default(false) | bool) }}
+
+- name: Créer le répertoire d’état de l’agent EDOT
+  ansible.builtin.file:
+    path: /var/lib/observability/elastic-agent-otel
+    state: directory
+    owner: root
+    mode: '0755'
+
+- name: Télécharger Elastic Agent pour le mode EDOT (cache local d'abord)
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/lab-cache
+      - file
+      - "https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-{{ elastic_agent_version }}-linux-{{ elastic_agent_arch }}.tar.gz"
+      - "/var/cache/observability/elastic-agent-{{ elastic_agent_version }}-linux-{{ elastic_agent_arch }}.tar.gz"
+  when: elastic_agent_install_required
+  register: elastic_agent_download
+  changed_when: elastic_agent_download.stdout_lines[-1] != 'present'
+  retries: "{{ elastic_agent_download_retries | default(5) }}"
+  delay: "{{ elastic_agent_download_delay | default(15) }}"
+  until: elastic_agent_download is succeeded
+
+- name: Extraire Elastic Agent
+  ansible.builtin.unarchive:
+    src: "/var/cache/observability/elastic-agent-{{ elastic_agent_version }}-linux-{{ elastic_agent_arch }}.tar.gz"
+    dest: /var/tmp
+    remote_src: true
+  when: elastic_agent_install_required
+
+- name: Installer Elastic Agent comme service standalone EDOT
+  ansible.builtin.command:
+    argv:
+      - "/var/tmp/elastic-agent-{{ elastic_agent_version }}-linux-{{ elastic_agent_arch }}/elastic-agent"
+      - install
+      - --non-interactive
+      - --force
+  when: elastic_agent_install_required
+  no_log: true
+
+- name: Déployer la configuration EDOT de l’agent
+  block:
+    # Chaque VM déclare sa plateforme, son environnement et son Edge
+    # (ADR-015). kafka-local désigne la publication directe dans le Kafka
+    # OTel local (ADR-005) ; toute autre valeur est un hôte de otel_edge_nodes
+    # dont la VM détient la clé OTEL_EDGE_KEY_<HOST>.
+    - name: Vérifier le rattachement de la VM à sa plateforme et à son Edge
+      ansible.builtin.assert:
+        that:
+          - otel_platform | default('') is match('^[a-z0-9_]+$')
+          - otel_environment | default('') is match('^[a-z0-9_]+$')
+          - otel_edge | default('') == 'kafka-local' or otel_edge | default('') in groups.get('otel_edge_nodes', [])
+          - otel_edge | default('') == 'kafka-local' or otel_edge_client_key | default('') | length > 0
+        fail_msg: >-
+          Rattachement de {{ inventory_hostname }} invalide : otel_platform et
+          otel_environment ([a-z0-9_]) et otel_edge (hôte de otel_edge_nodes
+          ou kafka-local) sont requis, avec la clé
+          {{ otel_edge_client_key_env | default('OTEL_EDGE_KEY_<HOST>') }} hors Git.
+        quiet: true
+
+    - name: Lire l’identifiant OpAMP persistant
+      ansible.builtin.slurp:
+        src: /var/lib/observability/elastic-agent-otel/opamp-instance-uid
+      register: opamp_instance_uid_file
+      when: fleet_enrollment_token | default('') | length > 0
+      failed_when: false
+
+    - name: Générer un identifiant OpAMP pour la VM
+      ansible.builtin.command: uuidgen
+      register: opamp_instance_uid_generated
+      changed_when: true
+      when:
+        - fleet_enrollment_token | default('') | length > 0
+        - opamp_instance_uid_file.content is not defined
+
+    - name: Conserver l’identifiant OpAMP de la VM
+      ansible.builtin.copy:
+        content: "{{ opamp_instance_uid_generated.stdout | default(opamp_instance_uid_file.content | b64decode | trim) }}\n"
+        dest: /var/lib/observability/elastic-agent-otel/opamp-instance-uid
+        owner: root
+        mode: '0600'
+      when:
+        - fleet_enrollment_token | default('') | length > 0
+        - opamp_instance_uid_generated.stdout is defined
+
+    - name: Définir l’identifiant OpAMP utilisé par l’agent
+      ansible.builtin.set_fact:
+        opamp_instance_uid: "{{ opamp_instance_uid_generated.stdout | default(opamp_instance_uid_file.content | b64decode | trim) }}"
+      when: fleet_enrollment_token | default('') | length > 0
+
+    - name: Déployer la configuration EDOT de l’agent
+      ansible.builtin.template:
+        src: elastic-agent.yml.j2
+        dest: /opt/Elastic/Agent/elastic-agent.yml
+        owner: root
+        mode: '0600'
+      register: elastic_agent_configuration
+
+- name: Déclarer le mode EDOT actif
+  ansible.builtin.copy:
+    content: "edot\n"
+    dest: /etc/observability/elastic-agent-otel.mode
+    owner: root
+    mode: '0644'
+
+- name: Redémarrer l’agent après changement de configuration
+  ansible.builtin.systemd_service:
+    name: elastic-agent.service
+    enabled: true
+    state: restarted
+  when: elastic_agent_configuration.changed or elastic_agent_install_required
+
+- name: Vérifier la santé de l’agent EDOT
+  ansible.builtin.command:
+    argv: [/opt/Elastic/Agent/elastic-agent, status]
+  register: elastic_agent_status
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: elastic_agent_status.rc == 0

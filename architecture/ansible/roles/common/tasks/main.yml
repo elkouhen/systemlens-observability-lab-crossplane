@@ -1,0 +1,213 @@
+---
+- name: Vérifier les variables injectées par scripts/vm
+  ansible.builtin.assert:
+    that: [node_ip is defined]
+    fail_msg: scripts/vm doit fournir node_ip.
+
+- name: Vérifier les secrets nécessaires au lab
+  ansible.builtin.assert:
+    that:
+      - postgresql_password | length > 0
+      - mongodb_otel_password | length > 0
+    fail_msg: Définir POSTGRESQL_PASSWORD et MONGODB_PASSWORD hors Git.
+  when: middleware_credentials_required | default(false)
+
+- name: Identifier l'interface du réseau privé
+  ansible.builtin.shell: |
+    ip -o -4 addr show | awk -v ip='{{ node_ip }}' '$4 ~ ("^" ip "/") { print $2; exit }'
+  args:
+    executable: /bin/bash
+  register: private_network_device
+  changed_when: false
+
+- name: Vérifier les interfaces réseau Ubuntu
+  ansible.builtin.assert:
+    that:
+      - private_network_device.stdout | trim | length > 0
+      - ansible_default_ipv4.interface | length > 0
+    fail_msg: >-
+      Les interfaces privée et NAT Ubuntu n'ont pas pu être identifiées.
+
+# Sous Lima (réseau user-v2), l'IP privée 192.168.33.x est une adresse
+# secondaire de l'interface qui porte aussi la route par défaut : il n'y a
+# alors qu'un bloc netplan, sans désactiver ses routes.
+- name: Déterminer si le réseau privé partage l'interface par défaut
+  ansible.builtin.set_fact:
+    private_network_shares_default: "{{ private_network_device.stdout | trim == ansible_default_ipv4.interface }}"
+
+- name: Empêcher le réseau privé de devenir la route par défaut sous Ubuntu
+  ansible.builtin.copy:
+    dest: /etc/netplan/99-observability-network.yaml
+    mode: '0600'
+    content: |
+      network:
+        version: 2
+        ethernets:
+          {{ private_network_device.stdout | trim }}:
+      {% if not private_network_shares_default %}
+            dhcp4-overrides:
+              use-routes: false
+              use-dns: false
+            dhcp6-overrides:
+              use-routes: false
+              use-dns: false
+      {% endif %}
+      {% if private_network_routes | default([]) | length > 0 %}
+            routes:
+      {% for route in private_network_routes %}
+              - to: {{ route.to }}
+                via: {{ route.via }}
+      {% endfor %}
+      {% endif %}
+      {% if private_network_shares_default %}
+            dhcp4-overrides:
+              use-routes: true
+              use-dns: false
+            nameservers:
+              addresses: [{{ vm_dns_servers }}]
+      {% else %}
+          {{ ansible_default_ipv4.interface }}:
+            dhcp4-overrides:
+              use-routes: true
+              use-dns: false
+            nameservers:
+              addresses: [{{ vm_dns_servers }}]
+      {% endif %}
+  register: ubuntu_network_configuration
+
+- name: Appliquer la configuration réseau Ubuntu
+  ansible.builtin.command: netplan apply
+  when: ubuntu_network_configuration.changed
+  changed_when: true
+
+- name: Vérifier la résolution DNS avant les installations réseau
+  ansible.builtin.command: getent ahostsv4 raw.githubusercontent.com
+  register: github_dns
+  changed_when: false
+  retries: 5
+  delay: 3
+  until: github_dns.rc == 0
+
+- name: Installer le certificat racine d'entreprise si fourni
+  ansible.builtin.copy:
+    content: "{{ zscaler_ca_cert_content }}"
+    dest: "{{ '/usr/local/share/ca-certificates/zscaler-root-ca.crt' if ansible_os_family == 'Debian' else '/etc/pki/ca-trust/source/anchors/zscaler-root-ca.crt' }}"
+    mode: '0644'
+  register: zscaler_ca
+  when: zscaler_ca_cert_content | length > 0
+
+- name: Actualiser le magasin de certificats
+  ansible.builtin.command: "{{ 'update-ca-certificates' if ansible_os_family == 'Debian' else 'update-ca-trust extract' }}"
+  when: zscaler_ca.changed | default(false)
+  changed_when: true
+
+# Cache local des téléchargements (lima/base.yaml, /var/cache/lab) : fichiers, paquets et images
+# sont lus dans le cache avant d'être téléchargés, puis déposés dans le cache.
+- name: Installer l'outil de cache local des téléchargements
+  ansible.builtin.copy:
+    src: lab-cache
+    dest: /usr/local/sbin/lab-cache
+    mode: '0755'
+
+- name: Actualiser les index APT avant l'installation des dépendances
+  ansible.builtin.apt:
+    update_cache: true
+  when: ansible_os_family == 'Debian'
+
+- name: Reprendre les paquets .deb du cache local
+  ansible.builtin.command: /usr/local/sbin/lab-cache debs-restore
+  register: lab_cache_debs
+  changed_when: lab_cache_debs.stdout is search('restored [1-9]')
+  when: ansible_os_family == 'Debian'
+
+- name: Installer les dépendances système
+  ansible.builtin.package:
+    name: [podman, curl, openssl, chrony, haproxy, firewalld, ca-certificates]
+    state: present
+
+- name: Déposer dans le cache local les paquets .deb téléchargés
+  ansible.builtin.command: /usr/local/sbin/lab-cache debs-save
+  register: lab_cache_debs_save
+  changed_when: lab_cache_debs_save.stdout is search('saved [1-9]')
+  when: ansible_os_family == 'Debian'
+
+- name: Vérifier la présence du générateur Quadlet rootful
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/lib/systemd/system-generators/podman-system-generator
+    - /lib/systemd/system-generators/podman-system-generator
+  register: podman_quadlet_generator_paths
+
+- name: Définir le chemin du générateur Quadlet rootful
+  ansible.builtin.set_fact:
+    podman_system_generator_path: >-
+      {{ (podman_quadlet_generator_paths.results | selectattr('stat.exists') | map(attribute='item') | list | first) | default('') }}
+
+- name: Refuser une installation Podman sans générateur Quadlet
+  ansible.builtin.assert:
+    that: podman_system_generator_path | length > 0
+    fail_msg: >-
+      Le générateur Quadlet rootful est absent. Réinstaller le paquet Ubuntu
+      podman avant de déployer les unités .container.
+
+- name: Collecter l'état des services système
+  ansible.builtin.service_facts:
+
+- name: Configurer la synchronisation horaire chrony
+  ansible.builtin.include_tasks: chrony.yml
+
+- name: Autoriser les ports de la topologie sur firewalld
+  ansible.posix.firewalld:
+    port: "{{ item }}/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ firewall_tcp_ports | default([]) }}"
+  when: ansible_facts.services['firewalld.service'].state | default('stopped') == 'running'
+
+- name: Autoriser les ports UDP de la topologie sur firewalld
+  ansible.posix.firewalld:
+    port: "{{ item }}/udp"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ firewall_udp_ports | default([]) }}"
+  when: ansible_facts.services['firewalld.service'].state | default('stopped') == 'running'
+
+- name: Classer les sources réseau nécessaires au forwarding dans trusted
+  ansible.posix.firewalld:
+    source: "{{ item }}"
+    zone: trusted
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ firewall_trusted_sources | default([]) }}"
+  when: ansible_facts.services['firewalld.service'].state | default('stopped') == 'running'
+
+- name: Créer les répertoires de la plateforme
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    mode: '0755'
+  loop:
+    - /etc/observability
+    - /etc/containers/systemd
+    - /usr/share/containers/systemd
+    - /var/lib/observability
+    - /var/lib/observability/otel-backend
+    - /var/cache/observability
+    - /opt/observability
+
+- name: Installer la résolution locale des VM
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: '# {mark} lab OBSERVABILITY HOSTS'
+    block: |
+      {{ supermarket_middleware_ip }} supermarket-middleware-01
+      {{ otel_backend_ip }} otel-backend-01
+      {{ otel_edge_ip }} otel-edge-01
+      {{ elk_ip }} elk-01
+      {{ k3s_ip }} k3s-01
+      {{ elk_ip }} kibana.observability.test elasticsearch.observability.test fleet.observability.test apm.observability.test

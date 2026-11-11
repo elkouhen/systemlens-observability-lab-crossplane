@@ -1,0 +1,55 @@
+# Une plateforme OTel : ses 3 topics Kafka et les droits d'écriture de ses publishers.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: otelplatforms.observability.lab.io
+spec:
+  scope: Cluster
+  group: observability.lab.io
+  names:
+    kind: OtelPlatform
+    plural: otelplatforms
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - {name: PLATFORM, type: string, jsonPath: .spec.platform}
+        - {name: ENV, type: string, jsonPath: .spec.environment}
+        - {name: PUBLISHERS, type: string, jsonPath: .spec.publishers}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [platform, environment, publishers]
+              properties:
+                platform:
+                  type: string
+                  pattern: '^[a-z0-9_]+$'
+                environment:
+                  type: string
+                  pattern: '^[a-z0-9_]+$'
+                publishers:
+                  type: array
+                  minItems: 1
+                  description: Hôtes autorisés à publier (compte Kafka otel_publisher_<hôte>)
+                  items:
+                    type: string
+                    pattern: '^[a-z0-9-]+$'
+                partitions:
+                  type: integer
+                  default: 3
+                retentionMs:
+                  type: integer
+                  default: 86400000
+                retentionBytes:
+                  type: integer
+                  default: 536870912
+            status:
+              type: object
+              properties:
+                topics:
+                  type: array
+                  items: {type: string}

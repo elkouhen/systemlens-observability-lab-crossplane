@@ -1,0 +1,70 @@
+asyncapi: 3.0.0
+info:
+  title: API asynchrone des commandes du supermarché
+  version: v1
+  description: Publication des commandes en ligne destinées à inventory-service.
+defaultContentType: application/json
+servers:
+  kafka:
+    host: '{bootstrapServers}'
+    protocol: kafka
+    description: Cluster Kafka configuré par SPRING_KAFKA_BOOTSTRAP_SERVERS.
+    variables:
+      bootstrapServers:
+        default: localhost:9092
+channels:
+  onlineOrders:
+    address: supermarket.order.placed
+    title: Commandes en ligne passées
+    description: Commandes publiées périodiquement par order-service et consommées par inventory-service.
+    messages:
+      orderPlaced:
+        $ref: '#/components/messages/OrderPlaced'
+    bindings:
+      kafka:
+        bindingVersion: '0.5.0'
+operations:
+  publishOnlineOrder:
+    action: send
+    title: Publier une commande en ligne
+    summary: Émet une commande à réserver par inventory-service.
+    channel:
+      $ref: '#/channels/onlineOrders'
+    messages:
+      - $ref: '#/channels/onlineOrders/messages/orderPlaced'
+components:
+  messages:
+    OrderPlaced:
+      name: OrderPlaced
+      title: Commande passée
+      summary: Commande créée par order-service.
+      payload:
+        $ref: '#/components/schemas/OrderPlaced'
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Identifiant de la commande, utilisé comme clé Kafka.
+          bindingVersion: '0.5.0'
+  schemas:
+    OrderPlaced:
+      type: object
+      required: [orderId, productId, quantity, requestedAt]
+      properties:
+        orderId:
+          type: string
+          description: Identifiant unique de la commande.
+          example: 550e8400-e29b-41d4-a716-446655440000
+        productId:
+          type: string
+          description: Référence du produit du catalogue.
+          example: PASTA-500G
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          example: 2
+        requestedAt:
+          type: string
+          format: date-time
+          description: Instant de création de la commande.

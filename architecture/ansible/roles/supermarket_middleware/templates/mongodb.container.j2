@@ -1,0 +1,18 @@
+[Unit]
+Description=MongoDB lab standalone
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=docker.io/library/mongo:8.0
+ContainerName=observability-mongodb
+PublishPort=27017:27017
+Volume=mongodb-data:/data/db:Z
+Volume=/var/log/mongodb:/var/log/mongodb:Z
+Exec=mongod --bind_ip_all --wiredTigerCacheSizeGB 0.25 --logpath /var/log/mongodb/mongod.log --logappend
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

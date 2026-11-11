@@ -1,0 +1,42 @@
+server:
+  port: 3002
+
+spring:
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:192.168.33.10:9092,192.168.33.11:9092,192.168.33.12:9092}
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: io.systemlens.supermarket.contract,io.systemlens.supermarket.contract.generated.event
+        # Compatibilité avec les messages publiés avant le déplacement des
+        # contrats vers le package généré.
+        spring.json.type.mapping: io.systemlens.supermarket.contract.OrderPlaced:io.systemlens.supermarket.contract.generated.event.OrderPlaced
+        allow.auto.create.topics: false
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        linger.ms: 5
+        batch.size: 16384
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        business.kafka.message.processing: true
+      percentiles:
+        http.server.requests: 0.5,0.95,0.99
+        business.kafka.message.processing: 0.5,0.95,0.99
+    enable:
+      kafka: true
+  export:
+    prometheus:
+      enabled: true

@@ -1,0 +1,79 @@
+---
+- name: Appliquer uniquement la rétention des VM
+  hosts: all
+  become: true
+  gather_facts: false
+  roles:
+    - retention
+
+- name: Réconcilier la rétention Kafka métier
+  hosts: supermarket_middleware_nodes
+  become: true
+  gather_facts: false
+  vars:
+    node_ip: 192.168.33.10
+    kafka_cluster_id: q1Sh-9_ISia_zwGINzRvyQ
+    kafka_controller_voters: 1@192.168.33.10:9093
+  tasks:
+    - name: Déployer la configuration déclarative du broker
+      ansible.builtin.template:
+        src: roles/supermarket_middleware/templates/kafka.container.j2
+        dest: /etc/containers/systemd/observability-kafka.container
+        mode: '0644'
+      register: retention_kafka
+
+    - name: Redémarrer Kafka si sa configuration a changé
+      ansible.builtin.systemd_service:
+        name: observability-kafka
+        daemon_reload: true
+        state: restarted
+      when: retention_kafka.changed
+
+    - name: Attendre la disponibilité Kafka
+      ansible.builtin.command: >-
+        podman exec --env KAFKA_OPTS= observability-kafka
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+      register: retention_topics
+      until: retention_topics.rc == 0
+      retries: 20
+      delay: 3
+      changed_when: false
+
+    # La rétention des topics supermarket.* est déclarée dans
+    # platform/crossplane/kafka-business/topics.yaml.
+
+- name: Réconcilier la rétention Kafka OTel
+  hosts: otel_backend_nodes
+  become: true
+  gather_facts: false
+  vars:
+    node_ip: 192.168.33.20
+    otel_kafka_cluster_id: otelQ1Sh-9_ISia_zwGINzRvyQ
+    otel_kafka_controller_voters: 2@192.168.33.20:9093
+  tasks:
+    - name: Déployer la configuration déclarative du broker Kafka OTel
+      ansible.builtin.template:
+        src: roles/otel_backend/templates/kafka.container.j2
+        dest: /etc/containers/systemd/observability-otel-kafka.container
+        mode: '0644'
+      register: retention_otel_kafka
+
+    - name: Redémarrer Kafka OTel si sa configuration a changé
+      ansible.builtin.systemd_service:
+        name: observability-otel-kafka
+        daemon_reload: true
+        state: restarted
+      when: retention_otel_kafka.changed
+
+    - name: Attendre la disponibilité de Kafka OTel
+      ansible.builtin.command: >-
+        podman exec --env KAFKA_OPTS= observability-otel-kafka
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --command-config /opt/kafka/config/otel-kafka-client.properties --list
+      register: retention_otel_topics
+      until: retention_otel_topics.rc == 0
+      retries: 20
+      delay: 3
+      changed_when: false
+
+    # La rétention des topics otel-* est déclarée par l'API OtelPlatform
+    # (platform/crossplane/kafka-otel/composition.yaml).

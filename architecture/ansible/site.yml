@@ -1,0 +1,50 @@
+---
+- name: Provisionner les VM de la plateforme architecture
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - role: common
+    - role: retention
+
+- name: Déployer la plateforme Elastic
+  hosts: elk_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: elk
+
+- name: Déployer le backend OTel
+  hosts: otel_backend_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: otel_backend
+
+- name: Déployer la passerelle Edge OTel
+  hosts: otel_edge_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: otel_edge
+
+- name: Déployer le middleware du scénario
+  hosts: supermarket_middleware_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: supermarket_middleware
+
+- name: Déployer le serveur k3s
+  hosts: k3s_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: k3s
+
+- name: Installer et configurer les agents EDOT
+  hosts: elastic_agent_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: elastic_agent
