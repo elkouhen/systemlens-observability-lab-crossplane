@@ -4,7 +4,8 @@ base: ./base.yaml
 # 4 vCPU : trois JVM, deux Kafka, PostgreSQL et MongoDB saturent 2 vCPU au démarrage
 # (sondes de vivacité en échec, redémarrages en chaîne).
 cpus: 4
-memory: 7GiB
+# 6 Gio pour environ 4,9 Gio utilisés (budget mémoire : README de l'architecture).
+memory: 6GiB
 disk: 60GiB
 ssh:
   localPort: 2255

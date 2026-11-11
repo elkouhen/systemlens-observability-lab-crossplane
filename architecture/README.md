@@ -78,6 +78,34 @@ Les clusters se pilotent depuis le Mac avec les kubeconfig écrits par `make kub
 `.kube/tools.config` (hub, `KUBECONFIG` par défaut du `Makefile`), `.kube/k3s.config` et
 `.kube/elk.config` (variables `KUBECTL_K3S` et `KUBECTL_ELK` du `Makefile`).
 
+## Budget mémoire
+
+Le poste a 16 Gio. Une VM vz finit par occuper sur le Mac toute la mémoire qui lui est allouée
+(cache de pages invité compris) : la taille Lima est donc la vraie dépense, pas la mémoire utilisée.
+Mesures du lot 8 (`free -m` dans chaque VM, lab déployé et stable) :
+
+| VM | Allouée | Utilisée | Ce qui la remplit |
+|---|---|---|---|
+| `tools-01` | 4 Gio | ~2,7 Gio | serveur k3s (plafonné par `GOMEMLIMIT=1GiB`), Argo CD, Crossplane et 5 providers |
+| `k3s-01` | 6 Gio | ~4,9 Gio | 3 services Java + demo-api (512 Mio max), 2 Kafka (tas 256 Mio), PostgreSQL, MongoDB, collecteurs |
+| `elk-01` | 4,5 Gio | ~3,7 Gio | Elasticsearch (tas 768 Mio, limite 1,5 Gio), Kibana (1 Gio), Fleet Server (512 Mio) |
+| `otel-edge-01` | 1,5 Gio | ~0,6 Gio | Collecteur Edge, HAProxy, agent EDOT |
+
+Soit 16 Gio alloués (22 Gio avant le lot 8). Les limites de chaque composant sont déclarées dans
+Git : valeurs par défaut des API Crossplane (`gitops/crossplane/apis/*/definition.yaml`), que
+chaque instance peut surcharger, valeurs Helm des opérateurs (`gitops/operators/`) et manifests des
+collecteurs (`gitops/otel-pipeline/k3s-01/`).
+
+Docker (Colima) ne sert plus au lab : GitHub construit les images applicatives et les publie sur GHCR
+(voir `apps/README.md`), et `make deploy` ne fait que les attendre (`make images-wait`). Colima
+n'est utile que pour les cibles optionnelles de construction locale (`make apps-build
+images-import`) et pour `make otel-config-validate` (validation des configurations par l'image
+EDOT). Sa VM occupe sinon jusqu'à 10 Gio sur le Mac : l'arrêter avec `colima stop` une fois ces
+usages terminés (`colima start` pour la relancer).
+
+`memory_pressure` (pourcentage libre) et `sysctl vm.swapusage` sur le Mac, `free -m` dans les VM
+(`architecture/scripts/vm shell <vm> free -m`) permettent de refaire ces mesures.
+
 ## Commandes principales
 
 `make help` affiche uniquement les parcours opérateur courants. Les cibles

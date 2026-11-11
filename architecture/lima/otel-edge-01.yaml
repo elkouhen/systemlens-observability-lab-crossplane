@@ -1,6 +1,7 @@
 # otel-edge-01 : nom, IP privée, mémoire et disque de la VM
 base: ./base.yaml
-memory: 2GiB
+# 1,5 Gio pour environ 0,6 Gio utilisés.
+memory: 1.5GiB
 disk: 20GiB
 ssh:
   localPort: 2253
