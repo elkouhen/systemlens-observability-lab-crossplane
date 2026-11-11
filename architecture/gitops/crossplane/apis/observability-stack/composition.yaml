@@ -27,7 +27,6 @@ spec:
             {{- $pc := dict "kind" "ClusterProviderConfig" "name" $xr.spec.cluster }}
             {{- $es := $xr.spec.elasticsearch }}
             {{- $pw := $xr.spec.elasticPasswordSecretRef }}
-            {{- $noTLS := dict "tls" (dict "selfSignedCertificate" (dict "disabled" true)) }}
             ---
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
@@ -78,7 +77,8 @@ spec:
                       fileRealm:
                         - secretName: elastic-user
                     http:
-                      {{- toYaml $noTLS | nindent 22 }}
+                      tls:
+                        selfSignedCertificate: {disabled: true}
                       service:
                         spec:
                           type: LoadBalancer
@@ -126,7 +126,8 @@ spec:
                     count: 1
                     elasticsearchRef: {name: elasticsearch}
                     http:
-                      {{- toYaml $noTLS | nindent 22 }}
+                      tls:
+                        selfSignedCertificate: {disabled: true}
                       service:
                         spec:
                           type: LoadBalancer
@@ -195,7 +196,8 @@ spec:
                     kibanaRef: {name: kibana}
                     elasticsearchRefs: [{name: elasticsearch}]
                     http:
-                      {{- toYaml $noTLS | nindent 22 }}
+                      tls:
+                        selfSignedCertificate: {disabled: true}
                       service:
                         spec:
                           type: LoadBalancer
