@@ -10,8 +10,6 @@ spec:
     repoURL: https://github.com/elkouhen/systemlens-observability-lab-crossplane.git
     targetRevision: main
     path: architecture/gitops/crossplane
-    # kustomize build avec le générateur KSOPS (Secrets SOPS du groupe), voir install/cmp-ksops.yaml.
-    plugin: {name: ksops}
   destination: {server: https://kubernetes.default.svc}
   syncPolicy:
     automated: {prune: true, selfHeal: true}

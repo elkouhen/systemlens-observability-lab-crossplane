@@ -514,10 +514,12 @@ deploy-post:
 deployment-finalize: deploy-post ## Finaliser les services VM et le monitoring OpAMP
 
 kubernetes-validate: ## Générer les manifests Kustomize sans les appliquer
-	@# Rendu de chaque groupe comme le plugin ksops d'Argo CD (Secrets SOPS déchiffrés : ksops et la
-	@# clé age requis), puis des Application Argo CD.
+	@# Rendu de chaque groupe comme Argo CD : kustomize intégré pour le groupe, plugin ksops pour
+	@# ses Secrets (secrets/ : ksops et la clé age requis), puis des Application Argo CD.
 	@for group in $(GITOPS_GROUPS); do \
-		kustomize build --enable-alpha-plugins --enable-exec $(GITOPS_ROOT)/$$group >/dev/null || { echo "Rendu invalide : gitops/$$group" >&2; exit 1; }; done
+		$(KUBECTL) kustomize $(GITOPS_ROOT)/$$group >/dev/null || { echo "Rendu invalide : gitops/$$group" >&2; exit 1; }; \
+		if test -d $(GITOPS_ROOT)/$$group/secrets; then kustomize build --enable-alpha-plugins --enable-exec $(GITOPS_ROOT)/$$group/secrets >/dev/null \
+		  || { echo "Secrets illisibles : gitops/$$group/secrets" >&2; exit 1; }; fi; done
 	@$(KUBECTL) kustomize $(ARGOCD_ROOT)/apps >/dev/null
 
 ansible-validate: ## Vérifier la syntaxe du playbook Ansible sans provisionner

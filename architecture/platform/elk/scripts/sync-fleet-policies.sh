@@ -5,7 +5,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-elk_dir="$(cd "${script_dir}/.." && pwd)"
+elk_dir="$(cd "${script_dir}/../../../gitops/elastic/assets" && pwd)"
 command -v curl >/dev/null || { printf 'curl est requis.\n' >&2; exit 2; }
 command -v jq >/dev/null || { printf 'jq est requis.\n' >&2; exit 2; }
 elasticsearch_url="${ELASTICSEARCH_URL:-http://elasticsearch.observability.test:9200}"

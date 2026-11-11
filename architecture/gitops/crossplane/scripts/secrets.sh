@@ -32,7 +32,7 @@ for groupdir in "$tmp"/*/; do
     echo "Secret $group/$name chiffré"
   done
   # Générateur KSOPS du groupe : tous les fichiers chiffrés de secrets/.
-  generator="$gitops/$group/secret-generator.yaml"
+  generator="$dir/secret-generator.yaml"
   expected="$(cat <<GEN
 # Secrets du groupe $group, chiffrés par SOPS (age) ; liste tenue à jour par make secrets-encrypt.
 apiVersion: viaduct.ai/v1
@@ -44,12 +44,12 @@ metadata:
       exec:
         path: ksops
 files:
-$(cd "$dir" && ls *.sops.yaml | sed 's|^|  - secrets/|')
+$(cd "$dir" && ls *.sops.yaml | sed 's|^|  - |')
 GEN
 )"
   if [ "$expected" != "$(cat "$generator" 2>/dev/null)" ]; then
-    if [ "$mode" = check ]; then echo "$group/secret-generator.yaml ne liste pas tous les Secrets chiffrés" >&2; changed=$((changed + 1))
-    else printf '%s\n' "$expected" > "$generator"; echo "Générateur $group/secret-generator.yaml mis à jour"; fi
+    if [ "$mode" = check ]; then echo "$group/secrets/secret-generator.yaml ne liste pas tous les Secrets chiffrés" >&2; changed=$((changed + 1))
+    else printf '%s\n' "$expected" > "$generator"; echo "Générateur $group/secrets/secret-generator.yaml mis à jour"; fi
   fi
 done
 if [ "$mode" = check ] && [ "$changed" -ne 0 ]; then

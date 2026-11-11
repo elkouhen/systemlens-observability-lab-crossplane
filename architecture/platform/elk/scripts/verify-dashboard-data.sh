@@ -58,7 +58,7 @@ expected_apm_fields=(
   resource.attributes.k8s.pod.uid
 )
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-dashboard_file="${script_dir}/../dashboards/business-metrics-dashboard.json"
+dashboard_file="${script_dir}/../../../gitops/elastic/assets/dashboards/business-metrics-dashboard.json"
 dashboard_query_start="$(date -u -v-15M '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -d '15 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')"
 dashboard_query_end="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 

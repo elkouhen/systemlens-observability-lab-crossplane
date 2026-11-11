@@ -14,8 +14,9 @@ GitHub (main) ──▶ Argo CD ──▶ Application lab (apps/)
                                └─ demo-api        gitops/demo-api        API de démonstration
 ```
 
-Chaque Application rend son groupe avec le plugin `ksops` (`kustomize build` et générateur KSOPS
-des Secrets SOPS du groupe).
+Chaque Application rend son groupe avec le kustomize intégré d'Argo CD ; les Secrets SOPS du
+groupe (`<groupe>/secrets/`) sont rendus par une Application imbriquée `<groupe>-secrets` avec le
+plugin `ksops`.
 
 **Seul ce qui est poussé sur `main` est déployé.** `make gitops-check` signale les changements
 locaux non committés ou non poussés ; `make argocd-sync` fait relire le dépôt sans attendre le

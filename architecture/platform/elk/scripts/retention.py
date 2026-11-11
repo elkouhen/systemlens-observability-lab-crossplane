@@ -15,7 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=['plan', 'apply', 'verify'])
     args = parser.parse_args()
-    config = json.loads((Path(__file__).resolve().parent.parent / 'ilm/retention.json').read_text())
+    config = json.loads((Path(__file__).resolve().parents[3] / 'gitops/elastic/assets/ilm/retention.json').read_text())
     password = os.environ.get('ELASTICSEARCH_PASSWORD') or os.environ.get('ELASTIC_PASSWORD')
     if not password:
         password = base64.b64decode(subprocess.check_output([

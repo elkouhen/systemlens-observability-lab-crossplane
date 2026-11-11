@@ -19,8 +19,11 @@ gitops/
 ```
 
 Chaque groupe suit la même forme : un fichier par sujet (un back-end, une API), sa
-`ClusterProviderConfig` dans le fichier du back-end qu'elle sert, `secrets/` (Secrets SOPS),
-`secret-generator.yaml` (générateur KSOPS) et `kustomization.yaml`, qui assemble le tout.
+`ClusterProviderConfig` dans le fichier du back-end qu'elle sert, `kustomization.yaml`, qui assemble
+le tout, et `secrets/` : Secrets SOPS et générateur KSOPS, rendus par l'Application imbriquée
+`<groupe>-secrets` (`secrets-app.yaml`). Les Secrets sont rendus à part parce que le kustomize de
+l'image KSOPS (v5.3) ignore sans erreur les ressources dont le type finit par `List`, comme les
+`AccessControlList` de provider-kafka ; le reste du groupe passe par le kustomize intégré d'Argo CD.
 
 ## Exemple : le groupe `supermarket`
 
@@ -72,7 +75,8 @@ Chaque groupe versionne ses Secrets chiffrés par SOPS avec age (`<groupe>/secre
 règle dans `.sops.yaml` à la racine du dépôt) : seules les valeurs sont chiffrées. Le plugin
 `ksops` d'Argo CD les déchiffre avec la clé age du Secret `argocd/sops-age`. Les valeurs viennent de
 `.observability-credentials.env` (hors Git) : `crossplane/scripts/credentials.sh` les dérive, groupe
-par groupe, et `crossplane/scripts/secrets.sh` les chiffre.
+par groupe, et `crossplane/scripts/secrets.sh` les chiffre et tient à jour
+`<groupe>/secrets/secret-generator.yaml`.
 
 ```bash
 make secrets-encrypt   # après un changement des identifiants : rechiffre les Secrets modifiés

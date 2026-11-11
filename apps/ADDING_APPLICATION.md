@@ -10,7 +10,8 @@ pour le cas minimal ; voir `architecture/gitops/README.md`) :
 - `otel-agent.yaml` et `kustomization.yaml` (copier ceux de `demo-api`) ;
 - un fichier par back-end avec sa `ClusterProviderConfig` (par exemple `postgresql.yaml`) ;
 - `secrets/` : ajouter le groupe et ses Secrets dans `architecture/gitops/crossplane/scripts/credentials.sh`,
-  puis `make secrets-encrypt` (crée aussi `secret-generator.yaml`) ;
+  puis `make secrets-encrypt` (crée aussi `secrets/secret-generator.yaml`) ; copier
+  `secrets/kustomization.yaml` et `secrets-app.yaml` de `demo-api` en remplaçant le nom du groupe ;
 - une Application Argo CD `architecture/gitops/argocd/apps/<groupe>.yaml`, listée dans le
   `kustomization.yaml` de ce répertoire ; ajouter le groupe à `GITOPS_GROUPS` du `Makefile`.
 
