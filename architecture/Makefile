@@ -678,7 +678,7 @@ apm-report-api-key-create: ## Créer une clé de lecture brute pour les rapports
 
 elastic-password-show: ## Afficher le mot de passe du compte elastic ECK
 	@$(KUBECTL) -n $(K8S_NAMESPACE) get secret elasticsearch-es-elastic-user \
-		-o go-template='{{.data.elastic | base64decode}}{{"\\n"}}'
+		-o go-template='{{.data.elastic | base64decode}}{{"\n"}}'
 
 kibana-password-show: elastic-password-show ## Afficher le mot de passe Kibana (compte elastic)
 
