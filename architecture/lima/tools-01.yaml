@@ -1,7 +1,9 @@
 # tools-01 : cluster de gestion (hub) k3s : Argo CD, Crossplane et ses providers, cert-manager.
 # Il pilote les clusters cibles k3s-01 (applicatif) et elk-01 (observabilité).
 base: ./base.yaml
-memory: 4GiB
+# 5 Gio : à 4 Gio, le serveur k3s (1,6 Gio avec les CRD des providers), Argo CD et Crossplane
+# laissent moins de 400 Mio libres ; DNS et sondes du hub tombent en délai.
+memory: 5GiB
 disk: 30GiB
 ssh:
   localPort: 2256
