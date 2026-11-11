@@ -108,6 +108,10 @@ spec:
                         resources:
                           requests: {cpu: 50m, memory: 192Mi}
                           limits: {memory: 256Mi}
+                        # Démarrage lent (plus de 15 s) quand k3s-01 redémarre tous ses pods : les
+                        # sondes par défaut (10 s) le tuent en boucle.
+                        livenessProbe: {initialDelaySeconds: 60, timeoutSeconds: 5}
+                        readinessProbe: {initialDelaySeconds: 30, timeoutSeconds: 5}
                       template:
                         userOperatorContainer:
                           env:
