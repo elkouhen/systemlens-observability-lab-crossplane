@@ -87,8 +87,8 @@ rules:
     verbs: ["*"]
 ---
 # provider-kubernetes agit sur le cluster où il tourne (InjectedIdentity) avec son propre
-# ServiceAccount, limité aux sortes d'objets qu'il gère (kubernetes/secrets.yaml et
-# scripts/kubernetes-objects.py). Les données des Secrets ne sont pas recopiées dans le statut
+# ServiceAccount, limité aux sortes d'objets qu'il gère (namespaces applicatifs et Secrets de
+# kubernetes/secrets.yaml). Les données des Secrets ne sont pas recopiées dans le statut
 # des Object. Les objets créés avant Crossplane par kubectl apply sont repris (champs de
 # l'ancien gestionnaire kubectl-client-side-apply).
 apiVersion: pkg.crossplane.io/v1beta1

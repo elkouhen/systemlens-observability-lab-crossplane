@@ -1,5 +1,4 @@
 {
-  "id": "business-metrics-dashboard",
   "title": "Métriques métier — Supermarket Demo",
   "description": "Parcours golden signals : Métier (commandes, réassort, stock) → Traffic → Latency → Errors → Saturation. Les métriques techniques des microservices sont représentées par des courbes temporelles, avec une série et une légende par microservice lorsque la dimension est disponible.",
   "time_range": {

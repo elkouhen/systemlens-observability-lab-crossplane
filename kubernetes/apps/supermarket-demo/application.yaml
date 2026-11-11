@@ -1,7 +1,7 @@
 # Les trois services du scénario supermarché, déclarés comme des Application Crossplane
 # (platform/crossplane/applications). La Composition produit leur Deployment, leur Service et
-# leur instrumentation OTel. Appliquer avec make apps-deploy : scripts/applications.py remplace
-# agentConfigFile par le contenu du fichier et APP_IMAGE_TAG fixe le tag des images.
+# leur instrumentation OTel. Synchronisé par Argo CD depuis Git (kustomization.yaml injecte
+# default/otel/agent.yaml) ; changer un tag ici, puis committer et pousser, redéploie le service.
 #
 # Niveaux de log (ADR-012) : les logs OTel doivent porter le trace_id du traitement qui les émet.
 # Seuls les loggers applicatifs (io.systemlens) restent en INFO ; les frameworks (Spring, Tomcat,
@@ -20,7 +20,6 @@ spec:
   otel:
     platform: supermarche
     micrometerMetrics: true
-    agentConfigFile: default/otel/agent.yaml
   env:
     - {name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "192.168.33.10:9092"}
     - {name: ORDER_SERVICE_INVENTORY_SERVICE_URL, value: "http://inventory-service:3001"}
@@ -39,7 +38,6 @@ spec:
   otel:
     platform: supermarche
     micrometerMetrics: true
-    agentConfigFile: default/otel/agent.yaml
   env:
     - {name: SPRING_DATA_MONGODB_URI, value: "mongodb://192.168.33.10:27017/observability_test?directConnection=true"}
     - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://192.168.33.10:5432/observability_test"}
@@ -63,7 +61,6 @@ spec:
   otel:
     platform: supermarche
     micrometerMetrics: true
-    agentConfigFile: default/otel/agent.yaml
   env:
     - {name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "192.168.33.10:9092"}
     - {name: LOGGING_LEVEL_ROOT, value: WARN}

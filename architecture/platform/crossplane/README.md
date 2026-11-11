@@ -1,7 +1,8 @@
 # Couche Crossplane
 
 Crossplane v2 tourne dans `k3s-01`. Il **déclare et réconcilie en continu** la configuration des back-ends
-du lab et les objets Kubernetes de `k3s-01`. Avant, cette configuration était appliquée de façon impérative
+du lab et les objets Kubernetes de `k3s-01`. Ces déclarations sont synchronisées depuis GitHub par
+Argo CD ([`../argocd`](../argocd/README.md)) : un changement est appliqué une fois committé et poussé. Avant, cette configuration était appliquée de façon impérative
 par Ansible (`podman exec kafka-*.sh`, `psql`, `mongosh`), par des scripts `curl`, par la préconfiguration
 de Kibana et par `kubectl apply -k` / `kubectl create secret`. Ansible ne garde plus que l'installation des
 hôtes : OS, Podman, binaires, services et amorçage des comptes administrateurs.
@@ -14,7 +15,7 @@ k3s-01 : Crossplane
   provider-terraform (elastic/elasticstack) ───▶ Elasticsearch, Kibana, Fleet   elk-01
                      (Kaginari/mongodb) ─ crossplane_admin ─▶ MongoDB  supermarket-middleware-01:27017
   provider-http ───── Basic elastic ───────────▶ API Kibana (dashboards)
-  provider-kubernetes ── ServiceAccount ───────▶ API k3s-01 (namespaces, Secrets, plateforme)
+  provider-kubernetes ── ServiceAccount ───────▶ API k3s-01 (namespaces applicatifs, Secrets)
   Composition Application ─────────────────────▶ Deployments, Services, ConfigMaps des applications
 ```
 
@@ -32,29 +33,34 @@ k3s-01 : Crossplane
 | `elastic/fleet.yaml` | 11 packages d'intégration, hôte Fleet Server, policies `eck-fleet-server` (avec `fleet-server-1`) et `otel-fleet` | `xpack.fleet.*` dans `kibana.yml.j2`, installations de `bootstrap-fleet-policies.sh` |
 | `elastic/kibana.yaml` | data view APM (import NDJSON) | `make apm-data-view-deploy` |
 | `elastic/kibana-alerting.yaml` | 4 règles d'alerte (`elasticstack_kibana_alerting_rule`), réalignées si on les modifie dans Kibana | `sync-observability-policies.sh`, puis les `Request` provider-http des règles |
-| `scripts/kibana-requests.py` (généré) | dashboards `business-metrics-dashboard` et `otel-flow-health` | `deploy-kibana-dashboard.sh`, `replace-kibana-dashboard.sh` |
+| `elastic/dashboards.yaml` | dashboards `business-metrics-dashboard` et `otel-flow-health-dashboard` (provider-http) | `deploy-kibana-dashboard.sh`, `replace-kibana-dashboard.sh` |
 | `kubernetes/secrets.yaml` | namespaces `h0tl-supermarche-app` et `h0tl-demo-app` ; Secrets `otel-edge-client-keys` (3 namespaces), `postgresql-credentials`, `postgresql-fleet-credentials`, `elasticsearch-es-elastic-user`, copiés depuis `crossplane-system/lab-secrets` et recréés s'ils disparaissent | cibles `otel-edge-client-keys-apply`, `postgresql-credentials-apply` et `kubectl create secret` de `elk-deploy` |
-| `scripts/kubernetes-objects.py` (généré) | un `Object` par objet de `platform/kubernetes/overlays/local` (18 : namespace, Services et EndpointSlices vers les VM, IngressRoutes, collecteurs OTel, RBAC), réaligné par watch | `kubectl apply -k platform/kubernetes/overlays/local` |
+| `secrets/*.sops.yaml` | Secrets d'accès des providers et Secret source `lab-secrets`, chiffrés par SOPS (age), déchiffrés par KSOPS dans Argo CD | `kubectl create secret` des identifiants administrateur |
 | `applications/definition.yaml`, `composition.yaml` | API `Application` (namespacée) : ConfigMap de l'agent OTel, Deployment et Service d'un service Java instrumenté | `kubectl apply -k kubernetes/apps/*/default` et `kubectl set image` de `apps-deploy` et `demo-api-deploy` |
 
-Les fichiers JSON et NDJSON de `platform/elk/` restent la source de vérité. `scripts/assets.sh` les publie
-tels quels dans le ConfigMap `elastic-assets` lu par Terraform (dont les règles d'alerte). Le tableau `slos`
-de `observability-policies.json` n'est plus déployé : les SLO ont été abandonnés (l'API exige une licence
-Platinum). `scripts/kibana-requests.py` embarque les dashboards dans les ressources `Request`.
+Les objets Kubernetes de la plateforme (`platform/kubernetes/overlays/local` : namespace
+`elastic-stack`, Services et EndpointSlices vers les VM, IngressRoutes, collecteurs OTel, RBAC) sont
+synchronisés directement par Argo CD (Application `platform-kubernetes`), sans passer par des `Object`
+Crossplane : Argo CD réaligne déjà en continu les objets Kubernetes natifs.
 
-Les manifests Kustomize de `platform/kubernetes` restent la source des objets de la plateforme :
-`scripts/kubernetes-objects.py` enveloppe la sortie de `kubectl kustomize` dans des `Object`. Le namespace
-`elastic-stack` et les namespaces applicatifs ne sont jamais supprimés par Crossplane (pas de politique
-`Delete`). provider-kubernetes applique en server-side apply : un champ déclaré modifié à la main est
-réaligné ; un champ ajouté par un autre gestionnaire (par exemple l'annotation de `kubectl rollout restart`)
-est conservé.
+`kustomization.yaml` assemble ces déclarations pour Argo CD (Application `crossplane-config`). Les
+fichiers JSON et NDJSON de `platform/elk/` restent la source de vérité : Kustomize les publie tels
+quels dans le ConfigMap `elastic-assets`, que les Workspaces Terraform lisent par variables
+`TF_VAR_*` (`spec.forProvider.env`), et recopie le JSON de chaque dashboard dans le corps de sa
+`Request` (`replacements`). Le tableau `slos` de `observability-policies.json` n'est pas déployé :
+les SLO ont été abandonnés (l'API exige une licence Platinum). Ces fichiers sont hors du répertoire
+de l'application : la lecture est autorisée par `--load-restrictor LoadRestrictionsNone` (`argocd-cm`
+et `make kubernetes-validate`).
+
+Le namespace `elastic-stack` et les namespaces applicatifs ne sont jamais supprimés (pas de politique
+`Delete` pour Crossplane, `Delete=false` pour Argo CD). provider-kubernetes applique en server-side
+apply : un champ déclaré modifié à la main est réaligné ; un champ ajouté par un autre gestionnaire
+(par exemple l'annotation de `kubectl rollout restart`) est conservé.
 
 ## Élagage et caches
 
-`make crossplane-kubernetes-apply`, `make apps-deploy` et `make demo-api-deploy` appliquent leur rendu
-puis lancent `scripts/prune.py` : les `Object` (label `lab.io/managed-by: kubernetes-objects`) et les
-`Application` (label `lab.io/managed-by: applications`) absents du rendu sont supprimés, ce qui
-supprime aussi les objets qu'ils gèrent. L'élagage se limite aux namespaces présents dans le rendu.
+Argo CD élague (`prune`) les ressources retirées du dépôt, y compris les `Application` ; leurs objets
+composés disparaissent avec elles.
 
 provider-terraform garde ses providers Terraform (`TF_PLUGIN_CACHE_DIR`) et Crossplane ses paquets
 (`packageCache.pvc`, `install/package-cache.yaml`) dans le cache local de l'hôte monté sur `k3s-01`
@@ -75,22 +81,24 @@ spec:
   otel:
     platform: supermarche         # platform.id (ADR-020) ; environment : homologation par défaut
     micrometerMetrics: true       # export OTLP Micrometer vers l'Edge
-    agentConfigFile: default/otel/agent.yaml
   env:                            # variables propres au service
     - {name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "192.168.33.10:9092"}
 ```
 
-`scripts/applications.py` remplace `agentConfigFile` par le contenu du fichier (qui reste la source, relue
-par `make trace-context-verify`) et fixe le tag (`APP_IMAGE_TAG`, `DEMO_API_IMAGE_TAG`). La Composition
+Le `kustomization.yaml` du même répertoire recopie `default/otel/agent.yaml` (qui reste la source,
+relue par `make trace-context-verify`) dans `spec.otel.agentConfig`. Le tag déployé est celui du
+dépôt : `APP_IMAGE_TAG` et `DEMO_API_IMAGE_TAG`, utilisés pour construire et importer les images,
+doivent lui correspondre. La Composition
 produit `<application>-otel-agent-config`, le Deployment et le Service avec les noms, labels, sondes et
 variables du lab ; l'empreinte de la configuration de l'agent, posée sur le gabarit des pods, les redémarre
-quand elle change. Changer le tag d'une `Application` redéploie le service.
+quand elle change. Changer le tag d'une `Application`, committer et pousser redéploie le service.
 
 ## Ce qui reste impératif, et pourquoi
 
 | Élément | Raison |
 |---|---|
-| `scripts/credentials.sh` : Secrets d'accès des providers et Secret source `lab-secrets` | Amorçage : il faut bien fournir à Crossplane ses identifiants administrateur et les secrets des workloads. Ils sont dérivés de `.observability-credentials.env`. Un gestionnaire de secrets (External Secrets, Vault) pourrait prendre le relais. |
+| `make secrets-encrypt` (`scripts/secrets.sh`, `scripts/credentials.sh`) | Les valeurs viennent de `.observability-credentials.env`, généré localement : il faut les rechiffrer (SOPS, age) puis committer quand il change. `make argocd-apps-apply` vérifie qu'ils correspondent (`make secrets-check`). |
+| `make crossplane-install`, `make argocd-install` | Amorçage : Crossplane (Helm), ses paquets, Argo CD et la clé age ne peuvent pas se synchroniser eux-mêmes avant d'exister. |
 | `otel_admin`, `observability`, `elastic`, `kibana_system`, `crossplane_admin` (MongoDB) | Comptes créés au démarrage des services par Ansible. Ce sont eux que Crossplane utilise. MongoDB tourne sans `--auth`, mais le provider Terraform `Kaginari/mongodb` s'authentifie toujours : il ne peut pas créer le premier compte. |
 | Secret TLS `elastic-public-tls` (`make public-tls-apply`) | Certificat autosigné généré localement par `openssl`. |
 | Migration ILM des indices existants (`make ilm-deploy`) et suppression des data streams obsolètes | Opérations ponctuelles sur des données, pas un état cible. |
@@ -109,15 +117,15 @@ garde `MONGODB_PASSWORD`, lu par les agents EDOT.
 
 ```bash
 make crossplane-install            # Crossplane, providers et fonctions (avec le bundle CA de k3s-01)
-make crossplane-credentials-apply  # Secrets d'accès des providers et Secret source lab-secrets
-make crossplane-apply              # toute la configuration, objets Kubernetes compris
-make crossplane-kubernetes-apply   # après modification de platform/kubernetes
-make crossplane-status             # état des ressources gérées et des Application
-make crossplane-platforms-apply    # après modification de platforms.yaml
-make apps-deploy                   # Application supermarket-demo (APP_IMAGE_TAG)
-make demo-api-deploy               # Application demo-api (DEMO_API_IMAGE_TAG)
+make secrets-encrypt               # rechiffrer les Secrets après changement des identifiants (puis commit, push)
+make crossplane-apply              # Argo CD, puis toute la configuration depuis GitHub
+make argocd-sync                   # relire le dépôt sans attendre (ARGOCD_APP=<nom> pour une seule)
+make crossplane-status             # état des ressources gérées, des Application et d'Argo CD
+make crossplane-platforms-apply    # après push de platforms.yaml : relecture et attente de Kafka
+make apps-deploy                   # attendre l'Application supermarket-demo et ses rollouts
+make demo-api-deploy               # attendre l'Application demo-api
 ```
 
-Ajouter une plateforme OTel revient à ajouter un document dans `platforms.yaml`, puis à lancer
-`make crossplane-platforms-apply`. Le collecteur backend découvre les nouveaux topics par expression
+Ajouter une plateforme OTel revient à ajouter un document dans `platforms.yaml`, à committer et
+pousser, puis à lancer `make crossplane-platforms-apply`. Le collecteur backend découvre les nouveaux topics par expression
 régulière, et l'Edge prend la plateforme en compte à son prochain provisionnement.

@@ -73,7 +73,9 @@ HELP_TARGETS := help architecture-status credentials-show credentials-generate c
 	application-data-verify order-service-command demo-api-build demo-api-deploy demo-api-call demo-api-jvm-metrics-verify \
 	dashboards-verify trace-context-verify observability-schema-verify otel-routing-verify otel-kafka-acl-verify \
 	otel-validate retention-validate retention-deploy retention-verify \
-	stock-show middleware-vm-provision k3s-vm-provision order-service-logs-follow inventory-service-logs-follow restock-service-logs-follow
+	stock-show middleware-vm-provision k3s-vm-provision order-service-logs-follow inventory-service-logs-follow restock-service-logs-follow \
+	argocd-install argocd-apps-apply argocd-sync argocd-wait argocd-status argocd-ui secrets-encrypt secrets-check gitops-check \
+	crossplane-install crossplane-apply crossplane-status crossplane-platforms-apply
 
 .PHONY: demo-api-test demo-api-build demo-api-import demo-api-deploy demo-api-call demo-api-jvm-metrics-verify demo-api-logs-follow help architecture-status c4-pages-build credentials-show credentials-generate cluster-info platform-status kubernetes-status java-version-verify apps-build apps-test command-center-build images-import kubernetes-validate ansible-validate otel-config-validate otel-routing-verify otel-legacy-datastreams-delete elastic-version-validate slides elastic-stack-deploy otel-elasticsearch-credentials-apply \
 	elk-deploy kibana-fleet-config-deploy fleet-assets-deploy fleet-prerequisites fleet-registry-ready fleet-server-start fleet-opamp-enable apm-data-view-deploy business-dashboard-deploy business-dashboard-replace apps-deploy fleet-sync \
@@ -90,6 +92,7 @@ HELP_TARGETS := help architecture-status credentials-show credentials-generate c
 .PHONY: cluster-show elasticsearch-wait kibana-wait fleet-prerequisites-validate fleet-registry-wait \
 	vms-start architecture-deploy deployment-finalize otel-validate ci-run stock-show slides-start \
 	crossplane-kubernetes-apply crossplane-kubernetes-wait crossplane-secrets-wait crossplane-mongodb-wait \
+	argocd-install argocd-apps-apply argocd-sync argocd-wait argocd-status argocd-ui secrets-encrypt secrets-check gitops-check \
 	cache-status cache-clean cache-save-k3s-images
 
 ##@ Informations et diagnostic
@@ -188,9 +191,10 @@ demo-api-import: ## Importer l'image demo-api dans k3s
 	@docker save demo-api:$(DEMO_API_IMAGE_TAG) | $(VM) shell $(K3S_VM_NAME) 'sudo /usr/local/bin/k3s ctr images import -'
 
 demo-api-deploy: crossplane-secrets-wait ## Déployer demo-api dans h0tl-demo-app et attendre son rollout
-	@# Application Crossplane (platform/crossplane/applications), tag fixé par DEMO_API_IMAGE_TAG.
-	@$(call CROSSPLANE_APPLY_PRUNE,$(CROSSPLANE_APPLICATIONS) $(DEMO_API_MANIFEST_ROOT)/application.yaml,applications.apps.lab.io,applications)
-	@$(KUBECTL) -n $(DEMO_API_NAMESPACE) wait --for=condition=Ready applications.apps.lab.io/demo-api --timeout=$(CROSSPLANE_TIMEOUT)
+	@# Application Crossplane synchronisée par Argo CD (kubernetes/apps/demo-api) ; le tag déployé
+	@# est celui de Git, DEMO_API_IMAGE_TAG doit lui correspondre.
+	@$(MAKE) argocd-wait ARGOCD_APP=demo-api
+	@$(call CROSSPLANE_WAIT_READY,-n $(DEMO_API_NAMESPACE),applications.apps.lab.io/demo-api)
 	@$(KUBECTL) -n $(DEMO_API_NAMESPACE) rollout status deployment/demo-api --timeout=180s
 
 demo-api-call: ## Appeler demo-api depuis le cluster (DEMO_API_PATH=/api/hello?name=lab|/api/fail?reason=demo)
@@ -331,10 +335,10 @@ otel-elasticsearch-credentials-apply: ## Créer ou réconcilier la clé API Elas
 
 elk-deploy: elastic-stack-deploy ## Déployer la plateforme d'observabilité Elastic sur elk-01
 	@$(MAKE) elasticsearch-ready
-	@# Configuration déclarative des back-ends et des objets de k3s-01 (platform/crossplane) :
-	@# Secrets elasticsearch-es-elastic-user, postgresql-*-credentials et otel-edge-client-keys,
-	@# manifests de la plateforme, supervision PostgreSQL et MongoDB.
-	@$(MAKE) crossplane-install crossplane-credentials-apply crossplane-apply
+	@# Configuration déclarative des back-ends et des objets de k3s-01, synchronisée par Argo CD
+	@# depuis GitHub (platform/argocd) : Secrets SOPS, configuration Crossplane, manifests de la
+	@# plateforme, supervision PostgreSQL et MongoDB, Application des services.
+	@$(MAKE) crossplane-install crossplane-apply
 	@$(MAKE) crossplane-secrets-wait
 	@$(MAKE) public-tls-apply
 	@$(MAKE) crossplane-postgresql-wait crossplane-mongodb-wait
@@ -354,17 +358,17 @@ elk-deploy: elastic-stack-deploy ## Déployer la plateforme d'observabilité Ela
 	@$(MAKE) observability-policies-deploy
 
 apm-data-view-deploy: ## Importer le data view APM versionné
-	@# Objets Kibana déclarés : platform/crossplane/elastic/kibana*.yaml et scripts/kibana-requests.py.
+	@# Objets Kibana déclarés : platform/crossplane/elastic/kibana*.yaml et dashboards.yaml.
 	@$(MAKE) crossplane-kibana-wait
 
 business-dashboard-deploy: ## Importer le dashboard des métriques métier
-	@# Objets Kibana déclarés : platform/crossplane/elastic/kibana*.yaml et scripts/kibana-requests.py.
+	@# Objets Kibana déclarés : platform/crossplane/elastic/kibana*.yaml et dashboards.yaml.
 	@$(MAKE) crossplane-kibana-wait
 
 business-dashboard-replace: business-dashboard-deploy ## Supprimer puis réimporter le dashboard métier
 
 otel-flow-dashboard-deploy: ## Déployer le dashboard de santé des flux OTel
-	@# Objets Kibana déclarés : platform/crossplane/elastic/kibana*.yaml et scripts/kibana-requests.py.
+	@# Objets Kibana déclarés : platform/crossplane/elastic/kibana*.yaml et dashboards.yaml.
 	@$(MAKE) crossplane-kibana-wait
 
 observability-policies-validate: ## Vérifier le manifeste versionné des alertes (et des SLO, non déployés)
@@ -372,7 +376,7 @@ observability-policies-validate: ## Vérifier le manifeste versionné des alerte
 	@bash -n $(ARCH_ROOT)/platform/elk/scripts/sync-observability-policies.sh
 
 observability-policies-deploy: observability-policies-validate ## Réconcilier les règles d’alerte de l’architecture dans Kibana
-	@# Objets Kibana déclarés : platform/crossplane/elastic/kibana*.yaml et scripts/kibana-requests.py.
+	@# Objets Kibana déclarés : platform/crossplane/elastic/kibana*.yaml et dashboards.yaml.
 	@$(MAKE) crossplane-kibana-wait
 
 apm-kibana-role-apply: ## Accorder au compte APM les droits Kibana APM/Fleet en lecture
@@ -387,9 +391,10 @@ apm-kibana-role-apply: ## Accorder au compte APM les droits Kibana APM/Fleet en 
 apps-deploy: ## Déployer uniquement l'application de démonstration
 	@test '$(DEPLOYMENT_PROFILE)' = minimal || { echo "Profil Kubernetes inconnu : $(DEPLOYMENT_PROFILE) (seul minimal est supporté)" >&2; exit 1; }
 	@$(MAKE) crossplane-secrets-wait
-	@# Application Crossplane (platform/crossplane/applications), tag fixé par APP_IMAGE_TAG.
-	@$(call CROSSPLANE_APPLY_PRUNE,$(CROSSPLANE_APPLICATIONS) $(APP_MANIFEST_ROOT)/application.yaml,applications.apps.lab.io,applications)
-	@$(KUBECTL) -n $(APP_NAMESPACE) wait --for=condition=Ready applications.apps.lab.io --all --timeout=$(CROSSPLANE_TIMEOUT)
+	@# Application Crossplane synchronisée par Argo CD (kubernetes/apps/supermarket-demo) ; le tag
+	@# déployé est celui de Git, APP_IMAGE_TAG doit lui correspondre.
+	@$(MAKE) argocd-wait ARGOCD_APP=supermarket-demo
+	@$(call CROSSPLANE_WAIT_READY,-n $(APP_NAMESPACE),applications.apps.lab.io --all)
 	@$(KUBECTL) -n $(APP_NAMESPACE) rollout status deployment/order-service --timeout=180s
 	@$(KUBECTL) -n $(APP_NAMESPACE) rollout status deployment/inventory-service --timeout=180s
 	@$(KUBECTL) -n $(APP_NAMESPACE) rollout status deployment/restock-service --timeout=180s
@@ -491,12 +496,12 @@ deploy:
 	test -n "$$password" || { echo 'Mot de passe Elasticsearch introuvable sur elk-01.' >&2; exit 1; }; \
 	export ELASTIC_PASSWORD="$$password"; \
 	$(MAKE) k3s-kubeconfig; \
-	SKIP_ELK_VM_PROVISION=1 $(MAKE) elk-deploy; \
 	$(MAKE) apps-build; \
 	$(MAKE) images-import; \
-	$(MAKE) apps-deploy; \
 	$(MAKE) demo-api-build; \
 	$(MAKE) demo-api-import; \
+	SKIP_ELK_VM_PROVISION=1 $(MAKE) elk-deploy; \
+	$(MAKE) apps-deploy; \
 	$(MAKE) demo-api-deploy; \
 	$(MAKE) deploy-post
 
@@ -511,9 +516,10 @@ deploy-post:
 deployment-finalize: deploy-post ## Finaliser les services VM et le monitoring OpAMP
 
 kubernetes-validate: ## Générer les manifests Kustomize sans les appliquer
-	@$(KUBECTL) kustomize $(ARCH_ROOT)/platform/kubernetes/overlays/local >/dev/null
-	@KUBECTL='$(KUBECTL)' python3 $(CROSSPLANE_ROOT)/scripts/kubernetes-objects.py $(ARCH_ROOT)/platform/kubernetes/overlays/local >/dev/null
-	@$(CROSSPLANE_APPLICATIONS) $(APP_MANIFEST_ROOT)/application.yaml $(DEMO_API_MANIFEST_ROOT)/application.yaml >/dev/null
+	@# Rendus synchronisés par Argo CD (mêmes options de build que argocd-cm), hors Secrets SOPS
+	@# (make secrets-check) et installation d'Argo CD (manifeste amont).
+	@for path in $(ARCH_ROOT)/platform/kubernetes/overlays/local $(CROSSPLANE_ROOT) $(APP_MANIFEST_ROOT) $(DEMO_API_MANIFEST_ROOT) $(ARGOCD_ROOT)/apps; do \
+		$(KUBECTL) kustomize --load-restrictor LoadRestrictionsNone "$$path" >/dev/null || exit 1; done
 
 ansible-validate: ## Vérifier la syntaxe du playbook Ansible sans provisionner
 	@ANSIBLE_LOCAL_TEMP=/tmp ansible-playbook --syntax-check -i ansible/inventory/lima.yml $(ARCH_ROOT)/ansible/site.yml
@@ -757,21 +763,75 @@ retention-verify: ## Contrôler les timers, Kafka et ILM effectivement déployé
 	@ANSIBLE_LOCAL_TEMP=/tmp ansible-playbook -i ansible/inventory/lima.yml ansible/retention-verify.yml
 	@python3 platform/elk/scripts/retention.py verify
 
+##@ GitOps : Argo CD et Crossplane
+
 # ---------------------------------------------------------------------------
 # Crossplane : configuration déclarative des back-ends (platform/crossplane)
 # ---------------------------------------------------------------------------
 CROSSPLANE_ROOT := $(ARCH_ROOT)/platform/crossplane
+COMMA := ,
 CROSSPLANE_VERSION ?= 2.4.3
 CROSSPLANE_TIMEOUT ?= 15m
-# Application Crossplane des services, avec la configuration de l'agent OTel et le tag d'image.
-CROSSPLANE_APPLICATIONS = python3 $(CROSSPLANE_ROOT)/scripts/applications.py \
-	--tag order-service=$(APP_IMAGE_TAG) --tag inventory-service=$(APP_IMAGE_TAG) --tag restock-service=$(APP_IMAGE_TAG) \
-	--tag demo-api=$(DEMO_API_IMAGE_TAG)
-# Applique un rendu Crossplane puis élague (scripts/prune.py) les ressources du même label absentes
-# du rendu : $(call CROSSPLANE_APPLY_PRUNE,<commande de rendu>,<ressource>,<valeur de lab.io/managed-by>)
-CROSSPLANE_APPLY_PRUNE = tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
-	$(1) > "$$tmp" && $(KUBECTL) apply -f "$$tmp" && \
-	KUBECTL='$(KUBECTL)' python3 $(CROSSPLANE_ROOT)/scripts/prune.py $(2) $(3) "$$tmp"
+# Les ressources sont créées par Argo CD, de façon asynchrone : attendre qu'elles existent, puis
+# qu'elles soient Ready. $(call CROSSPLANE_WAIT_READY,<options de namespace>,<ressources>)
+CROSSPLANE_WAIT_READY = for i in $$(seq 1 180); do \
+	  test -n "$$($(KUBECTL) $(1) get $(subst --all,,$(2)) -o name 2>/dev/null)" && break; sleep 5; done; \
+	$(KUBECTL) $(1) wait --for=condition=Ready $(2) --timeout=$(CROSSPLANE_TIMEOUT)
+
+# ---------------------------------------------------------------------------
+# Argo CD : synchronisation GitOps depuis GitHub (platform/argocd)
+# ---------------------------------------------------------------------------
+ARGOCD_ROOT := $(ARCH_ROOT)/platform/argocd
+ARGOCD_APP ?=
+SOPS_AGE_KEY_FILE ?= $(HOME)/.config/sops/age/keys.txt
+export SOPS_AGE_KEY_FILE
+
+secrets-encrypt: ## Chiffrer (SOPS, age) les Secrets des providers depuis .observability-credentials.env ; committer et pousser ensuite
+	@set -euo pipefail; source '$(OBSERVABILITY_CREDENTIALS_FILE)'; KUBECTL='$(KUBECTL)' $(CROSSPLANE_ROOT)/scripts/secrets.sh encrypt
+
+secrets-check: ## Vérifier que les Secrets chiffrés correspondent aux identifiants locaux
+	@set -euo pipefail; source '$(OBSERVABILITY_CREDENTIALS_FILE)'; KUBECTL='$(KUBECTL)' $(CROSSPLANE_ROOT)/scripts/secrets.sh check
+
+gitops-check: ## Signaler les changements locaux qu'Argo CD ne verra pas (non committés ou non poussés)
+	@cd $(ARCH_ROOT)/.. && git fetch --quiet origin main 2>/dev/null || true; \
+	dirty="$$(git status --porcelain -- architecture/platform kubernetes)"; \
+	ahead="$$(git rev-list --count origin/main..HEAD 2>/dev/null || echo '?')"; \
+	test -z "$$dirty" || echo "Attention : changements non committés, ignorés par Argo CD :" >&2; \
+	test -z "$$dirty" || echo "$$dirty" >&2; \
+	test "$$ahead" = 0 || echo "Attention : $$ahead commit(s) non poussé(s) : Argo CD synchronise origin/main." >&2
+
+argocd-install: ## Installer Argo CD (KSOPS, clé age, CA de k3s-01) dans k3s-01
+	@test -s '$(SOPS_AGE_KEY_FILE)' || { echo "Clé age introuvable : $(SOPS_AGE_KEY_FILE)" >&2; exit 1; }
+	@$(KUBECTL) create namespace argocd --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
+	@$(KUBECTL) -n argocd create secret generic sops-age --from-file=keys.txt='$(SOPS_AGE_KEY_FILE)' --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
+	@$(KUBECTL) apply --server-side --force-conflicts -k $(ARGOCD_ROOT)/install >/dev/null
+	@# Bundle CA de k3s-01 (racine du proxy TLS d'entreprise comprise) pour joindre github.com.
+	@test -s $(ARCH_ROOT)/.kube/ca-certificates.crt || $(VM) shell $(K3S_VM_NAME) 'cat /etc/ssl/certs/ca-certificates.crt' > $(ARCH_ROOT)/.kube/ca-certificates.crt
+	@$(KUBECTL) -n argocd create configmap argocd-tls-certs-cm --from-file=github.com=$(ARCH_ROOT)/.kube/ca-certificates.crt \
+		--dry-run=client -o yaml | $(KUBECTL) apply --server-side --force-conflicts -f - >/dev/null
+	@$(KUBECTL) -n argocd rollout status deployment/argocd-repo-server deployment/argocd-server --timeout=10m
+	@$(KUBECTL) -n argocd rollout status statefulset/argocd-application-controller --timeout=10m
+	@echo "Argo CD prêt : http://argocd.localhost:8080 (make argocd-ui)"
+
+argocd-apps-apply: secrets-check gitops-check ## Confier la configuration à Argo CD (Application racine lab)
+	@$(KUBECTL) apply -f $(ARGOCD_ROOT)/root.yaml
+
+argocd-sync: ## Relire le dépôt sans attendre le prochain cycle (ARGOCD_APP=<nom>, toutes par défaut)
+	@$(KUBECTL) -n argocd annotate applications.argoproj.io $(if $(ARGOCD_APP),$(ARGOCD_APP),--all) argocd.argoproj.io/refresh=normal --overwrite >/dev/null
+	@echo "Relecture demandée : $(if $(ARGOCD_APP),$(ARGOCD_APP),toutes les Application)"
+
+argocd-wait: ## Attendre qu'une Application Argo CD soit synchronisée et saine (ARGOCD_APP=<nom>)
+	@test -n '$(ARGOCD_APP)' || { echo 'Préciser ARGOCD_APP=<nom>' >&2; exit 1; }
+	@for i in $$(seq 1 120); do $(KUBECTL) -n argocd get applications.argoproj.io/$(ARGOCD_APP) >/dev/null 2>&1 && break; sleep 5; done
+	@$(KUBECTL) -n argocd wait applications.argoproj.io/$(ARGOCD_APP) --for=jsonpath='{.status.sync.status}'=Synced --timeout=$(CROSSPLANE_TIMEOUT)
+	@$(KUBECTL) -n argocd wait applications.argoproj.io/$(ARGOCD_APP) --for=jsonpath='{.status.health.status}'=Healthy --timeout=$(CROSSPLANE_TIMEOUT)
+
+argocd-status: ## État des Application Argo CD
+	@$(KUBECTL) -n argocd get applications.argoproj.io
+
+argocd-ui: ## Afficher l'URL de l'interface Argo CD et copier le mot de passe admin dans le presse-papiers
+	@$(KUBECTL) -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 --decode | pbcopy
+	@echo "http://argocd.localhost:8080 — utilisateur admin, mot de passe copié dans le presse-papiers"
 
 crossplane-install: ## Installer Crossplane, ses providers et ses fonctions dans k3s-01
 	@$(KUBECTL) create namespace crossplane-system --dry-run=client -o yaml | $(KUBECTL) apply -f -
@@ -791,56 +851,45 @@ crossplane-install: ## Installer Crossplane, ses providers et ses fonctions dans
 	@$(KUBECTL) wait --for=condition=Healthy providers.pkg.crossplane.io --all --timeout=$(CROSSPLANE_TIMEOUT)
 	@$(KUBECTL) wait --for=condition=Healthy functions.pkg.crossplane.io --all --timeout=$(CROSSPLANE_TIMEOUT)
 
-crossplane-credentials-apply: ## Déposer les Secrets d'accès des providers (depuis .observability-credentials.env)
-	@set -euo pipefail; source '$(OBSERVABILITY_CREDENTIALS_FILE)'; KUBECTL='$(KUBECTL)' $(CROSSPLANE_ROOT)/scripts/credentials.sh
+crossplane-apply: ## Installer Argo CD et lui confier toute la configuration (depuis GitHub, branche main)
+	@$(MAKE) argocd-install argocd-apps-apply
 
-crossplane-apply: ## Appliquer toute la configuration Crossplane (Kafka, PostgreSQL, MongoDB, Elastic, Kibana, Kubernetes)
-	@$(KUBECTL) apply -f $(ARCH_ROOT)/platform/kubernetes/base/observability/namespace.yaml
-	@$(KUBECTL) apply -f $(CROSSPLANE_ROOT)/config/
-	@KUBECTL='$(KUBECTL)' $(CROSSPLANE_ROOT)/scripts/assets.sh
-	@$(KUBECTL) apply -f $(CROSSPLANE_ROOT)/kafka-otel/definition.yaml
-	@$(KUBECTL) apply -f $(CROSSPLANE_ROOT)/applications/definition.yaml
-	@$(KUBECTL) wait --for=condition=Established xrd/otelplatforms.observability.lab.io xrd/applications.apps.lab.io --timeout=180s
-	@$(KUBECTL) apply -f $(CROSSPLANE_ROOT)/kafka-otel/ -f $(CROSSPLANE_ROOT)/platforms.yaml -f $(CROSSPLANE_ROOT)/applications/
-	@$(KUBECTL) apply -f $(CROSSPLANE_ROOT)/kafka-business/ -f $(CROSSPLANE_ROOT)/postgresql/ -f $(CROSSPLANE_ROOT)/mongodb/ -f $(CROSSPLANE_ROOT)/elastic/
-	@$(KUBECTL) apply -f $(CROSSPLANE_ROOT)/kubernetes/
-	@python3 $(CROSSPLANE_ROOT)/scripts/kibana-requests.py | $(KUBECTL) apply -f -
-	@$(MAKE) crossplane-kubernetes-apply
-
-crossplane-kubernetes-apply: ## Réconcilier les manifests Kustomize de la plateforme sous forme d'Object Crossplane
-	@$(call CROSSPLANE_APPLY_PRUNE,KUBECTL='$(KUBECTL)' python3 $(CROSSPLANE_ROOT)/scripts/kubernetes-objects.py $(ARCH_ROOT)/platform/kubernetes/overlays/local,objects.kubernetes.m.crossplane.io,kubernetes-objects)
+crossplane-kubernetes-apply: ## Faire relire platform/kubernetes par Argo CD (après push)
+	@$(MAKE) argocd-sync ARGOCD_APP=platform-kubernetes
 
 crossplane-kubernetes-wait: ## Attendre les objets de la plateforme Kubernetes (namespace, Services, collecteurs, RBAC)
-	@$(KUBECTL) -n crossplane-system wait --for=condition=Ready objects.kubernetes.m.crossplane.io -l lab.io/managed-by=kubernetes-objects --timeout=$(CROSSPLANE_TIMEOUT)
+	@$(MAKE) argocd-wait ARGOCD_APP=platform-kubernetes
 
 crossplane-secrets-wait: ## Attendre les namespaces applicatifs et les Secrets des workloads
-	@$(KUBECTL) -n crossplane-system wait --for=condition=Ready objects.kubernetes.m.crossplane.io -l lab.io/managed-by=kubernetes-secrets --timeout=$(CROSSPLANE_TIMEOUT)
+	@$(call CROSSPLANE_WAIT_READY,-n crossplane-system,objects.kubernetes.m.crossplane.io -l lab.io/managed-by=kubernetes-secrets)
 
 crossplane-mongodb-wait: ## Attendre le compte de supervision MongoDB
-	@$(KUBECTL) -n crossplane-system wait --for=condition=Ready workspaces.tf.m.upbound.io/mongodb-monitoring --timeout=$(CROSSPLANE_TIMEOUT)
+	@$(call CROSSPLANE_WAIT_READY,-n crossplane-system,workspaces.tf.m.upbound.io/mongodb-monitoring)
 
-crossplane-platforms-apply: ## Réconcilier le registre des plateformes OTel (topics et ACL)
-	@$(KUBECTL) apply -f $(CROSSPLANE_ROOT)/platforms.yaml
+crossplane-platforms-apply: ## Faire relire le registre des plateformes OTel par Argo CD (après push), puis attendre Kafka
+	@$(MAKE) argocd-sync ARGOCD_APP=crossplane-config
+	@$(MAKE) crossplane-kafka-wait
 
 crossplane-kafka-wait: ## Attendre les comptes, topics et ACL Kafka
-	@$(KUBECTL) wait --for=condition=Ready otelplatforms.observability.lab.io --all --timeout=$(CROSSPLANE_TIMEOUT)
-	@$(KUBECTL) -n crossplane-system wait --for=condition=Ready users.user.kafka.m.crossplane.io,accesscontrollists.acl.kafka.m.crossplane.io,topics.topic.kafka.m.crossplane.io --all --timeout=$(CROSSPLANE_TIMEOUT)
+	@$(call CROSSPLANE_WAIT_READY,,otelplatforms.observability.lab.io --all)
+	@$(call CROSSPLANE_WAIT_READY,-n crossplane-system,users.user.kafka.m.crossplane.io$(COMMA)accesscontrollists.acl.kafka.m.crossplane.io$(COMMA)topics.topic.kafka.m.crossplane.io --all)
 
 crossplane-postgresql-wait: ## Attendre la configuration PostgreSQL
-	@$(KUBECTL) -n crossplane-system wait --for=condition=Ready extensions.postgresql.sql.m.crossplane.io,roles.postgresql.sql.m.crossplane.io,grants.postgresql.sql.m.crossplane.io --all --timeout=$(CROSSPLANE_TIMEOUT)
+	@$(call CROSSPLANE_WAIT_READY,-n crossplane-system,extensions.postgresql.sql.m.crossplane.io$(COMMA)roles.postgresql.sql.m.crossplane.io$(COMMA)grants.postgresql.sql.m.crossplane.io --all)
 
 crossplane-elastic-wait: ## Attendre Elasticsearch déclaré (ILM, pipelines, clé API OTel)
-	@$(KUBECTL) -n elastic-stack wait --for=condition=Ready workspaces.tf.m.upbound.io/elasticsearch --timeout=$(CROSSPLANE_TIMEOUT)
+	@$(call CROSSPLANE_WAIT_READY,-n elastic-stack,workspaces.tf.m.upbound.io/elasticsearch)
 
 crossplane-fleet-wait: ## Attendre les packages et policies Fleet déclarés
-	@$(KUBECTL) -n crossplane-system wait --for=condition=Ready workspaces.tf.m.upbound.io/fleet --timeout=$(CROSSPLANE_TIMEOUT)
+	@$(call CROSSPLANE_WAIT_READY,-n crossplane-system,workspaces.tf.m.upbound.io/fleet)
 
 crossplane-kibana-wait: ## Attendre les objets Kibana déclarés (data view, règles d'alerte, dashboards)
-	@$(KUBECTL) -n crossplane-system wait --for=condition=Ready workspaces.tf.m.upbound.io/kibana-saved-objects workspaces.tf.m.upbound.io/kibana-alerting --timeout=$(CROSSPLANE_TIMEOUT)
-	@$(KUBECTL) -n crossplane-system wait --for=condition=Ready requests.http.m.crossplane.io -l lab.io/managed-by=kibana-requests --timeout=$(CROSSPLANE_TIMEOUT)
+	@$(call CROSSPLANE_WAIT_READY,-n crossplane-system,workspaces.tf.m.upbound.io/kibana-saved-objects workspaces.tf.m.upbound.io/kibana-alerting)
+	@$(call CROSSPLANE_WAIT_READY,-n crossplane-system,requests.http.m.crossplane.io -l lab.io/managed-by=kibana-requests)
 
 crossplane-status: ## État des ressources gérées par Crossplane
 	@$(KUBECTL) get providers.pkg.crossplane.io,functions.pkg.crossplane.io
 	@$(KUBECTL) get otelplatforms.observability.lab.io
 	@$(KUBECTL) get applications.apps.lab.io -A
 	@$(KUBECTL) get managed -A
+	@$(KUBECTL) -n argocd get applications.argoproj.io 2>/dev/null || true

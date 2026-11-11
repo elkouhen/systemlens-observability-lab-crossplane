@@ -59,7 +59,7 @@ l'agent Elastic actif et sans agent OTel.
 
 ## Vérification
 
-`python3 architecture/platform/crossplane/scripts/applications.py kubernetes/apps/supermarket-demo/application.yaml`
+`kubectl kustomize kubernetes/apps/supermarket-demo`
 et la Composition ne rendent aucune
 variable `ELASTIC_APM_*` ni aucun `-javaagent`. L'agent est attaché une seule
 fois, par l'`ENTRYPOINT` des images construites par `make apps-build`. Après

@@ -72,7 +72,8 @@ Les collecteurs Kubernetes s'authentifient auprès d'Edge avec deux clés Bearer
 distinctes, une pour `otel-kubernetes` et une pour
 `otel-kubernetes-cluster`. Les fournir hors Git avec
 `OTEL_EDGE_KEY_KUBERNETES` et `OTEL_EDGE_KEY_KUBERNETES_CLUSTER`, puis exécuter
-`make crossplane-credentials-apply` avant `make kubernetes-observability-deploy`.
+`make secrets-encrypt`, committer et pousser les Secrets chiffrés (Argo CD les applique) avant
+`make kubernetes-observability-deploy`.
 Les clés sont copiées par Crossplane (`platform/crossplane/kubernetes/secrets.yaml`) dans le
 Secret Kubernetes `otel-edge-client-keys` de chaque namespace. Les
 VM utilisent chacune leur clé `OTEL_EDGE_KEY_<HOST>` (ADR-015).

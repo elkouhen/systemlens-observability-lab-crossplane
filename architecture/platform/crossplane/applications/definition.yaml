@@ -1,7 +1,8 @@
 # Une application du lab : un service Java instrumenté par l'agent OTel, exposé dans son namespace.
 # La Composition (composition.yaml) en produit le Deployment, le Service et la configuration de
 # l'agent OTel. Les instances sont déclarées avec chaque application
-# (kubernetes/apps/<application>/application.yaml) et appliquées par scripts/applications.py.
+# (kubernetes/apps/<application>/application.yaml) et synchronisées par Argo CD ; Kustomize y
+# injecte la configuration de l'agent (kubernetes/apps/<application>/kustomization.yaml).
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:

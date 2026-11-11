@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Seule étape impérative de la couche Crossplane : déposer dans crossplane-system les Secrets
-# d'accès aux back-ends, dérivés de .observability-credentials.env (hors Git). Idempotent.
+# Rend les Secrets d'accès aux back-ends (crossplane-system), dérivés de
+# .observability-credentials.env (hors Git), un fichier JSON en clair par Secret dans <répertoire>.
+# Appelé par secrets.sh, qui les chiffre avec SOPS (age) dans platform/crossplane/secrets/.
+# Usage : credentials.sh <répertoire>
 set -euo pipefail
+out=${1:?Usage : credentials.sh <répertoire>}
 : "${KAFKA_OTEL_PUBLISHER_PASSWORD:?}" "${KAFKA_OTEL_CONSUMER_PASSWORD:?}" "${POSTGRESQL_PASSWORD:?}" "${ELASTIC_PASSWORD:?}" "${MONGODB_PASSWORD:?}" \
   "${OTEL_EDGE_KEY_KUBERNETES:?}" "${OTEL_EDGE_KEY_KUBERNETES_CLUSTER:?}"
 KUBECTL=${KUBECTL:-kubectl}
@@ -13,8 +16,8 @@ apply_secret() { # nom, puis paires clé=valeur
   local name=$1; shift
   local args=() kv
   for kv in "$@"; do args+=(--from-literal="$kv"); done
-  "$KUBECTL" -n crossplane-system create secret generic "$name" "${args[@]}" --dry-run=client -o yaml | "$KUBECTL" apply -f - >/dev/null
-  echo "Secret crossplane-system/$name"
+  "$KUBECTL" -n crossplane-system create secret generic "$name" "${args[@]}" --dry-run=client -o json \
+    | jq -S 'del(.metadata.creationTimestamp)' > "$out/$name.json"
 }
 
 apply_secret kafka-otel-admin credentials="$(jq -cn --arg p "$(derive otel_admin)" \

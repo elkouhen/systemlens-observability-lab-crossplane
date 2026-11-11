@@ -11,13 +11,16 @@ policy Fleet de collecte concurrente.
 
 ## Ce qui change par rapport à systemlens-observability-lab
 
-Même topologie (5 VM, mêmes noms, mêmes IP `192.168.33.x`, mêmes rôles), avec deux différences :
+Même topologie (5 VM, mêmes noms, mêmes IP `192.168.33.x`, mêmes rôles), avec trois différences :
 
 - **Configuration des back-ends par Crossplane.** Topics, comptes SCRAM et ACL Kafka, supervision
   PostgreSQL et MongoDB, ILM, pipelines, clé API, Fleet, data view, dashboards et règles Kibana sont
   déclarés dans [`platform/crossplane`](platform/crossplane/README.md) et réconciliés en continu depuis
   `k3s-01`, comme les objets Kubernetes : Secrets, manifests de la plateforme et services applicatifs
   (API `Application`). Ansible n'installe plus que les hôtes.
+- **GitOps par Argo CD.** Argo CD, dans `k3s-01`, synchronise toute cette configuration depuis la
+  branche `main` du dépôt GitHub, Secrets compris (chiffrés par SOPS avec age) : voir
+  [`platform/argocd`](platform/argocd/README.md). Un changement est déployé une fois poussé.
 - **VM Lima.** Les VM sont décrites dans `lima/` et pilotées par `scripts/vm` (création,
   provisionnement Ansible, shell, arrêt, suppression), utilisé par le `Makefile`. Les IP `192.168.33.x` sont
   portées par le réseau partagé Lima `user-v2` et joignables entre VM. Depuis le Mac, on passe par

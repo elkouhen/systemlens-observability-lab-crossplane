@@ -8,7 +8,10 @@ avec les mêmes noms, namespaces, labels et variables que les anciens manifests 
 - `apps/supermarket-demo/application.yaml` : order, inventory et restock-service ;
 - `apps/demo-api/application.yaml` : API de démonstration des signaux ;
 - `apps/*/default/otel/agent.yaml` : configuration déclarative de l'agent Java OTel, incorporée
-  dans l'Application par `architecture/platform/crossplane/scripts/applications.py`.
+  dans l'Application par Kustomize (`apps/*/kustomization.yaml`) ;
+- Argo CD synchronise chaque répertoire `apps/<application>` depuis la branche `main` du dépôt
+  GitHub (`architecture/platform/argocd`) : un changement (tag d'image, variable) est déployé
+  une fois committé et poussé.
 
 Les namespaces et les Secrets applicatifs sont des Object Crossplane
 (`architecture/platform/crossplane/kubernetes/secrets.yaml`). Les manifests de la plateforme

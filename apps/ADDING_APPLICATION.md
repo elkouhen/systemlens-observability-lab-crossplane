@@ -3,7 +3,10 @@
 Ce guide décrit le raccordement à la chaîne d'observabilité architecture. Un service est
 déclaré comme une `Application` Crossplane (`kubernetes/apps/<application>/application.yaml`) ;
 la Composition `architecture/platform/crossplane/applications/composition.yaml` en produit le
-Deployment, le Service et l'instrumentation OTel.
+Deployment, le Service et l'instrumentation OTel. Le répertoire contient aussi un
+`kustomization.yaml` (copier celui de `kubernetes/apps/demo-api`), et une Application Argo CD
+`architecture/platform/argocd/apps/<application>.yaml`, listée dans le `kustomization.yaml` du
+même répertoire, le synchronise depuis GitHub une fois committé et poussé.
 
 Ce guide décrit l'ajout d'une application Java Spring Boot à la chaîne
 d'observabilité du lab. Le chemin des signaux est le suivant :
@@ -44,8 +47,8 @@ d'appender d'export : stdout garde le texte par défaut de Spring Boot, lu par
 L'Application ne donne que quelques paramètres : image et tag, port, chemin des sondes,
 plateforme OTel (`spec.otel.platform`), export Micrometer et variables propres au service
 (`spec.env`). La Composition configure l'agent sans l'attacher une seconde fois : elle monte
-la configuration déclarative `otel/agent.yaml`, incorporée par
-`architecture/platform/crossplane/scripts/applications.py` puis publiée en ConfigMap
+la configuration déclarative `otel/agent.yaml`, incorporée par Kustomize
+(`kubernetes/apps/<application>/kustomization.yaml`) puis publiée en ConfigMap
 `<application>-otel-agent-config` (son empreinte redémarre les pods), et ajoute :
 
 ```yaml

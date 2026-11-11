@@ -1,0 +1,73 @@
+# Dashboards Kibana décrits en JSON brut (platform/elk/dashboards/<id>.json, PUT /api/dashboards/<id>),
+# gérés par provider-http : création si absents (404), mise à jour quand le dashboard observé ne
+# correspond plus au JSON versionné, suppression avec la ressource. Kustomize injecte le contenu
+# du fichier JSON dans payload.body (kustomization.yaml, replacements). Ils restent en
+# provider-http : elasticstack_kibana_dashboard imposerait de réécrire les panneaux ES|QL.
+---
+apiVersion: http.m.crossplane.io/v1alpha2
+kind: Request
+metadata:
+  name: dashboard-business-metrics-dashboard
+  namespace: crossplane-system
+  labels: {lab.io/managed-by: kibana-requests}
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kibana}
+  forProvider:
+    waitTimeout: 2m
+    headers:
+      Content-Type: [application/json]
+      kbn-xsrf: [crossplane]
+      Authorization: ["Basic {{ kibana-auth:crossplane-system:basic }}"]
+      # provider-http évalue les valeurs d'en-tête en jq : 2023-10-31 serait une soustraction.
+      Elastic-Api-Version: ['"2023-10-31"']
+    payload:
+      baseUrl: http://192.168.33.40:5601/api/dashboards/business-metrics-dashboard
+      body: ""  # contenu de platform/elk/dashboards/business-metrics-dashboard.json
+    mappings:
+      - {action: CREATE, method: PUT, url: .payload.baseUrl, body: .payload.body}
+      - {action: OBSERVE, method: GET, url: .payload.baseUrl}
+      - {action: UPDATE, method: PUT, url: .payload.baseUrl, body: .payload.body}
+      - {action: REMOVE, method: DELETE, url: .payload.baseUrl}
+    # L'API renvoie la définition sous .data : titre, description et panneaux comparés.
+    expectedResponseCheck:
+      type: CUSTOM
+      logic: >-
+        .response.statusCode == 200
+        and .response.body.data.title == .payload.body.title
+        and .response.body.data.description == .payload.body.description
+        and (.response.body.data.panels | length) == (.payload.body.panels | length)
+    isRemovedCheck: {type: CUSTOM, logic: .response.statusCode == 404}
+---
+apiVersion: http.m.crossplane.io/v1alpha2
+kind: Request
+metadata:
+  name: dashboard-otel-flow-health-dashboard
+  namespace: crossplane-system
+  labels: {lab.io/managed-by: kibana-requests}
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kibana}
+  forProvider:
+    waitTimeout: 2m
+    headers:
+      Content-Type: [application/json]
+      kbn-xsrf: [crossplane]
+      Authorization: ["Basic {{ kibana-auth:crossplane-system:basic }}"]
+      # provider-http évalue les valeurs d'en-tête en jq : 2023-10-31 serait une soustraction.
+      Elastic-Api-Version: ['"2023-10-31"']
+    payload:
+      baseUrl: http://192.168.33.40:5601/api/dashboards/otel-flow-health-dashboard
+      body: ""  # contenu de platform/elk/dashboards/otel-flow-health-dashboard.json
+    mappings:
+      - {action: CREATE, method: PUT, url: .payload.baseUrl, body: .payload.body}
+      - {action: OBSERVE, method: GET, url: .payload.baseUrl}
+      - {action: UPDATE, method: PUT, url: .payload.baseUrl, body: .payload.body}
+      - {action: REMOVE, method: DELETE, url: .payload.baseUrl}
+    # L'API renvoie la définition sous .data : titre, description et panneaux comparés.
+    expectedResponseCheck:
+      type: CUSTOM
+      logic: >-
+        .response.statusCode == 200
+        and .response.body.data.title == .payload.body.title
+        and .response.body.data.description == .payload.body.description
+        and (.response.body.data.panels | length) == (.payload.body.panels | length)
+    isRemovedCheck: {type: CUSTOM, logic: .response.statusCode == 404}

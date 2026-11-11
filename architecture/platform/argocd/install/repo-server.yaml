@@ -1,0 +1,38 @@
+# Plugin de gestion de configuration (CMP) ksops : un sidecar du repo-server, sur l'image KSOPS
+# (kustomize et ksops, sans shell), sert les Application qui le demandent (source.plugin.name:
+# ksops) : kustomize build avec le générateur KSOPS, qui déchiffre les Secrets SOPS avec la clé
+# age du Secret sops-age. Les autres Application gardent le Kustomize intégré, sans plugin exec.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-repo-server
+spec:
+  template:
+    spec:
+      containers:
+        - name: ksops
+          image: viaductoss/ksops:v4.5.1
+          # Serveur CMP copié par l'initContainer amont (copyutil) dans var-files.
+          command: [/var/run/argocd/argocd-cmp-server]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          env:
+            - {name: SOPS_AGE_KEY_FILE, value: /sops-age/keys.txt}
+            - {name: HOME, value: /tmp}
+          volumeMounts:
+            - {name: var-files, mountPath: /var/run/argocd}
+            - {name: plugins, mountPath: /home/argocd/cmp-server/plugins}
+            - {name: cmp-ksops, mountPath: /home/argocd/cmp-server/config/plugin.yaml, subPath: plugin.yaml}
+            - {name: cmp-tmp, mountPath: /tmp}
+            - {name: sops-age, mountPath: /sops-age, readOnly: true}
+      volumes:
+        - name: cmp-ksops
+          configMap: {name: argocd-cmp-ksops}
+        - name: cmp-tmp
+          emptyDir: {}
+        - name: sops-age
+          secret: {secretName: sops-age}

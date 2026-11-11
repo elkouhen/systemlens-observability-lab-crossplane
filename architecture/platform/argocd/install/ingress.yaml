@@ -1,0 +1,15 @@
+# Interface Argo CD : http://argocd.localhost:8080 (port 80 de k3s-01 transféré par Lima ;
+# *.localhost se résout en 127.0.0.1 sans entrée /etc/hosts).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-server
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`argocd.localhost`)
+      services:
+        - name: argocd-server
+          port: 80

@@ -1,0 +1,6 @@
+# Chiffrement SOPS des Secrets versionnés (age). Seules les valeurs (data, stringData) sont
+# chiffrées ; la clé privée age reste hors Git (~/.config/sops/age/keys.txt, Secret argocd/sops-age).
+creation_rules:
+  - path_regex: architecture/platform/crossplane/secrets/.*\.sops\.yaml$
+    encrypted_regex: ^(data|stringData)$
+    age: age136dut7ljt7angdg84vpdldfqqgd4hv64la7afc80z0c67k68nq8s2sj6yz

@@ -1,5 +1,4 @@
 {
-  "id": "otel-flow-health-dashboard",
   "title": "Santé des flux OTel",
   "description": "Vue opérationnelle de la remontée des métriques, logs et traces depuis Kubernetes et les VM vers Edge, Kafka OTel et Elasticsearch.",
   "time_range": {

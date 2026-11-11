@@ -2,7 +2,7 @@
 # Remplace : platform/elk/scripts/retention.py (politique et templates), sync-fleet-policies.sh
 # (pipelines @custom) et la cible make otel-elasticsearch-credentials-apply (clé API OTel).
 # Les fichiers JSON versionnés (platform/elk/ilm, platform/elk/fleet) sont passés tels quels via
-# le ConfigMap elastic-assets, généré par scripts/assets.sh.
+# le ConfigMap elastic-assets, généré par Kustomize (kustomization.yaml).
 apiVersion: tf.m.upbound.io/v1beta1
 kind: Workspace
 metadata:
@@ -15,21 +15,30 @@ spec:
     name: otel-elasticsearch-credentials
   forProvider:
     source: Inline
-    varFiles:
-      - source: ConfigMapKey
-        configMapKeyRef: {name: elastic-assets, key: elasticsearch.tfvars.json}
-        format: JSON
+    env:
+      - name: TF_VAR_retention_json
+        configMapKeyRef: {name: elastic-assets, key: retention.json}
+      - name: TF_VAR_kafka_raft_pipeline_json
+        configMapKeyRef: {name: elastic-assets, key: kafka-raft-pipeline.json}
+      - name: TF_VAR_kafka_topic_pipeline_json
+        configMapKeyRef: {name: elastic-assets, key: kafka-topic-ingest-pipeline.json}
     module: |
-      variable "retention" { type = any }
-      variable "kafka_raft_pipeline" { type = any }
-      variable "kafka_topic_pipeline" { type = any }
+      # Fichiers JSON versionnés, transmis tels quels (TF_VAR_* depuis le ConfigMap elastic-assets).
+      variable "retention_json" { type = string }
+      variable "kafka_raft_pipeline_json" { type = string }
+      variable "kafka_topic_pipeline_json" { type = string }
+      locals {
+        retention            = jsondecode(var.retention_json)
+        kafka_raft_pipeline  = jsondecode(var.kafka_raft_pipeline_json)
+        kafka_topic_pipeline = jsondecode(var.kafka_topic_pipeline_json)
+      }
 
       # ---------- Rétention (ILM) ----------
       locals {
-        phases = var.retention.policy.phases
+        phases = local.retention.policy.phases
       }
       resource "elasticstack_elasticsearch_index_lifecycle" "telemetry" {
-        name = var.retention.policy_name
+        name = local.retention.policy_name
         hot {
           min_age = local.phases.hot.min_age
           rollover {
@@ -73,8 +82,8 @@ spec:
           if    = "ctx.service != null && (ctx.service.address == 'mongodb://localhost:27017' || ctx.service.address == 'mongodb://127.0.0.1:27017')"
         } })
         kafka_versioned = {
-          raft  = var.kafka_raft_pipeline
-          topic = var.kafka_topic_pipeline
+          raft  = local.kafka_raft_pipeline
+          topic = local.kafka_topic_pipeline
         }
       }
 

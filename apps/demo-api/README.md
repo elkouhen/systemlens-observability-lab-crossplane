@@ -53,7 +53,7 @@ sondes Kubernetes sont TCP pour ne pas créer de transactions.
   `deployment.environment.name=homologation` (ADR-020) ; sans plateforme
   servie, l'Edge rejette les signaux.
 - Docker pour construire l'image, le cluster k3s et le Secret
-  `otel-edge-client-keys`, copié par Crossplane (`make crossplane-apply`, attendu par
+  `otel-edge-client-keys`, copié par Crossplane (synchronisé par Argo CD via `make crossplane-apply`, attendu par
   `make demo-api-deploy`).
 
 ## Commandes

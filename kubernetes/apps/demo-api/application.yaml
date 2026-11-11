@@ -3,8 +3,8 @@
 # (ADR-015) : h0tl-demo-app héberge la plateforme demo en homologation, que le pod déclare par
 # platform.id et deployment.environment.name (ADR-020) ; la plateforme doit être attribuée à
 # l'Edge dans le registre des plateformes (platform/crossplane/platforms.yaml).
-# Appliquer avec make demo-api-deploy : scripts/applications.py remplace agentConfigFile par le
-# contenu du fichier et DEMO_API_IMAGE_TAG fixe le tag de l'image.
+# Synchronisé par Argo CD depuis Git (kustomization.yaml injecte default/otel/agent.yaml) ;
+# changer le tag de l'image ici, puis committer et pousser, redéploie le service.
 ---
 apiVersion: apps.lab.io/v1alpha1
 kind: Application
@@ -18,4 +18,3 @@ spec:
   memoryLimit: 384Mi
   otel:
     platform: demo
-    agentConfigFile: default/otel/agent.yaml
