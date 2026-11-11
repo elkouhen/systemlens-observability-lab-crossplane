@@ -12,7 +12,7 @@ curl_args=(--fail --silent --show-error --insecure --resolve "${kibana_resolve}"
   -H 'Content-Type: application/json')
 
 # Les packages d'intégration, l'hôte Fleet Server et les agent policies sont déclarés dans
-# platform/crossplane/elastic/fleet.yaml et réconciliés par Crossplane (make crossplane-fleet-wait).
+# gitops/elastic/fleet.yaml et réconciliés par Crossplane (make crossplane-fleet-wait).
 # Ce script ne garde que les opérations ponctuelles : doublons Fleet Server et clé d'enrôlement.
 
 # Un redémarrage ou une réinitialisation historique du Fleet Server peut

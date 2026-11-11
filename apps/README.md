@@ -6,8 +6,8 @@ porter la configuration de la plateforme ELK qui l'observe.
 
 ## Parcours conseillé
 
-Lire [`supermarket-demo/README.md`](supermarket-demo/README.md), puis la base
-commune et l’overlay par défaut sous `../kubernetes/apps/`, et enfin les modules Maven
+Lire [`supermarket-demo/README.md`](supermarket-demo/README.md), puis son groupe
+de déploiement `../architecture/gitops/supermarket/` (Application, bases, Secrets), et enfin les modules Maven
 communs. L’application est raccordée à l’architecture d’observabilité active.
 
 [`demo-api/README.md`](demo-api/README.md) décrit l'API de démonstration :

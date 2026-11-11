@@ -28,7 +28,7 @@ l'agent Elastic actif et sans agent OTel.
 - L'`ENTRYPOINT` de chaque cible du `Dockerfile` attache l'agent avec
   `-javaagent:/opt/opentelemetry-javaagent.jar` et fixe `OTEL_SERVICE_NAME`.
   L'image est ainsi instrumentée par construction, y compris hors Kubernetes.
-- L'instrumentation produite par l'Application Crossplane (`architecture/platform/crossplane/applications/composition.yaml`)
+- L'instrumentation produite par l'Application Crossplane (`architecture/gitops/crossplane/apis/application/composition.yaml`)
   ne fait que configurer l'agent :
   `OTEL_JAVAAGENT_CONFIGURATION_FILE`, attributs de ressource et clé du
   collecteur Edge. Il ne contient plus de `-javaagent`, ce qui évite un double
@@ -59,7 +59,7 @@ l'agent Elastic actif et sans agent OTel.
 
 ## Vérification
 
-`kubectl kustomize kubernetes/apps/supermarket-demo`
+`kubectl kustomize architecture/gitops/supermarket`
 et la Composition ne rendent aucune
 variable `ELASTIC_APM_*` ni aucun `-javaagent`. L'agent est attaché une seule
 fois, par l'`ENTRYPOINT` des images construites par `make apps-build`. Après

@@ -85,12 +85,12 @@
   until: middleware_kafka_ready.rc == 0
 
 # pg_stat_statements et compte otel du receiver PostgreSQL : déclarés dans
-# platform/crossplane/postgresql/monitoring.yaml (provider-sql). Compte otel_monitor du receiver
-# MongoDB : platform/crossplane/mongodb/monitoring.yaml (provider-terraform).
+# gitops/supermarket/postgresql.yaml (provider-sql). Compte otel_monitor du receiver
+# MongoDB : gitops/supermarket/mongodb.yaml (provider-terraform).
 
 # Amorçage du compte administrateur MongoDB utilisé par Crossplane (provider Terraform
 # Kaginari/mongodb), qui crée ensuite le compte de supervision otel_monitor
-# (platform/crossplane/mongodb/monitoring.yaml). Le provider s'authentifie toujours : il ne peut
+# (gitops/supermarket/mongodb.yaml). Le provider s'authentifie toujours : il ne peut
 # pas créer le premier compte. MongoDB reste sans --auth.
 - name: Créer le compte administrateur MongoDB de Crossplane
   ansible.builtin.command:

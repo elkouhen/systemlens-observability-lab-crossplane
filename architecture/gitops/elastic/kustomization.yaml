@@ -1,0 +1,50 @@
+# Plateforme Elastic de elk-01 (Application Argo CD elastic) : accès depuis k3s-01 (namespace,
+# Services, IngressRoutes) et configuration déclarée par Crossplane (ILM, pipelines, clé API OTel,
+# Fleet, saved objects, règles d'alerte, dashboards). Les fichiers de assets/ sont la source de
+# vérité : Kustomize les publie tels quels.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - vm-services.yaml
+  - ingress.yaml
+  - provider-configs.yaml
+  - elasticsearch.yaml
+  - fleet.yaml
+  - kibana-saved-objects.yaml
+  - kibana-alerting.yaml
+  - kibana-dashboards.yaml
+generators:
+  - secret-generator.yaml
+configMapGenerator:
+  # Lus par les Workspaces Terraform (variables TF_VAR_* de spec.forProvider.env).
+  - name: elastic-assets
+    namespace: elastic-stack
+    files:
+      - assets/ilm/retention.json
+      - assets/fleet/kafka-raft-pipeline.json
+      - assets/fleet/kafka-topic-ingest-pipeline.json
+  - name: elastic-assets
+    namespace: crossplane-system
+    files:
+      - assets/dashboards/apm-data-view.ndjson
+      - assets/alerts/observability-policies.json
+  # Source locale des dashboards, recopiée dans les Request puis retirée du rendu.
+  - name: kibana-dashboards
+    namespace: crossplane-system
+    files:
+      - business-metrics-dashboard=assets/dashboards/business-metrics-dashboard.json
+      - otel-flow-health-dashboard=assets/dashboards/otel-flow-health-dashboard.json
+    options:
+      annotations: {config.kubernetes.io/local-config: "true"}
+generatorOptions:
+  disableNameSuffixHash: true
+replacements:
+  - source: {kind: ConfigMap, name: kibana-dashboards, fieldPath: data.business-metrics-dashboard}
+    targets:
+      - select: {kind: Request, name: dashboard-business-metrics-dashboard}
+        fieldPaths: [spec.forProvider.payload.body]
+  - source: {kind: ConfigMap, name: kibana-dashboards, fieldPath: data.otel-flow-health-dashboard}
+    targets:
+      - select: {kind: Request, name: dashboard-otel-flow-health-dashboard}
+        fieldPaths: [spec.forProvider.payload.body]

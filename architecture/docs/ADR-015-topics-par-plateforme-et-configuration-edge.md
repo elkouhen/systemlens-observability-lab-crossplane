@@ -253,7 +253,7 @@ Fichiers concernés :
 - `architecture/ansible/roles/elastic_agent/` : endpoint et clé depuis
   `otel_edge`, topics de `kafka/backend` depuis la plateforme, agent sur
   `k3s-01`.
-- `architecture/platform/kubernetes/base/observability/otel-kafka.yaml` :
+- `architecture/gitops/otel-pipeline/kubernetes-collectors.yaml` :
   retrait de `hostmetrics`, de `resource/edge-source` et de
   `resource/environment` ; Job limité aux topics métier.
 - `Makefile` : cible `otel-routing-verify`.

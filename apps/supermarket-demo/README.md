@@ -35,9 +35,9 @@ le réassort asynchrone. Le Dockerfile produit une image pour chacun.
 1. `pom.xml` : agrégateur Maven et versions communes.
 2. `Dockerfile` : build multi-stage ; l'`ENTRYPOINT` des trois images de
    service attache l'agent Java OpenTelemetry, seul agent d'instrumentation.
-3. [`kubernetes/apps/supermarket-demo/application.yaml`](../../kubernetes/apps/supermarket-demo/application.yaml) :
+3. [`architecture/gitops/supermarket/applications.yaml`](../../architecture/gitops/supermarket/applications.yaml) :
    les trois services déclarés comme des Application Crossplane ; la Composition
-   (`architecture/platform/crossplane/applications`) produit leurs Deployments, Services et
+   (`architecture/gitops/crossplane/apis/application`) produit leurs Deployments, Services et
    l'instrumentation qui configure l'agent OTel et les raccorde au collecteur Edge en OTLP.
 4. `order-service/src/main/resources/application.yml`, puis la même
    configuration d'`inventory-service` : endpoints, Kafka, MongoDB,
@@ -47,7 +47,7 @@ le réassort asynchrone. Le Dockerfile produit une image pour chacun.
 
 Construire les images applicatives avec `make apps-build`, puis déployer uniquement
 l'application avec `make apps-deploy`. Cette cible applique les Application de
-`kubernetes/apps/supermarket-demo/application.yaml` avec le tag `APP_IMAGE_TAG`.
+`architecture/gitops/supermarket/applications.yaml` avec le tag `APP_IMAGE_TAG`.
 
 Pour déclencher une commande de recette via le service Kubernetes, exécuter
 `make order-service-command`. La cible crée un pod `curl` éphémère, appelle
@@ -74,7 +74,7 @@ La version de l'agent OpenTelemetry est contrôlée par
 `OTEL_JAVA_AGENT_VERSION` lors de `make -C architecture apps-build`. Elle est intégrée
 dans chaque image applicative et n'est donc pas téléchargée au démarrage des
 Pods. Sa configuration déclarative, commune aux trois services, est dans
-`kubernetes/apps/supermarket-demo/default/otel/agent.yaml`, chargée par
+`architecture/gitops/supermarket/otel-agent.yaml`, chargée par
 `OTEL_CONFIG_FILE` dans l'overlay Kubernetes. Les variables
 `MANAGEMENT_OTLP_*` restent dans Kubernetes car elles configurent l'exporteur
 Micrometer de Spring Boot, distinct de l'agent Java.

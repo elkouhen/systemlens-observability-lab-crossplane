@@ -55,7 +55,7 @@ check_zero() {
 if [[ "${mode}" == trace-context ]]; then
   # Configuration déclarative de l'agent Java, commune aux trois services
   # (OTEL_CONFIG_FILE) : propagateurs W3C et export OTLP des logs.
-  agent_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../../../kubernetes/apps/supermarket-demo/default/otel" && pwd)/agent.yaml"
+  agent_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../../gitops/supermarket" && pwd)/otel-agent.yaml"
   for key in tracecontext baggage logger_provider; do
     grep -Eq "^ *(- )?${key}:" "${agent_config}" || {
       printf 'KO      %s absent de %s\n' "${key}" "${agent_config}" >&2
@@ -199,7 +199,7 @@ if [[ "${mode}" == schema ]]; then
   # Corrélation : un log de niveau INFO ou inférieur (severity_number < 13)
   # est émis par le code applicatif pendant un traitement et porte donc le
   # trace_id de sa trace. Les frameworks n'émettent qu'à partir de WARN
-  # (LOGGING_LEVEL_* de kubernetes/apps/supermarket-demo/application.yaml). Seule exception :
+  # (LOGGING_LEVEL_* de architecture/gitops/supermarket/applications.yaml). Seule exception :
   # la ligne de démarrage de la classe principale (*Application), émise
   # avant toute requête.
   untraced_log_query="$(jq -cn --arg window "${window}" '{

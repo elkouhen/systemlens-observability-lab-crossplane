@@ -1,0 +1,88 @@
+# Supervision PostgreSQL de supermarket-middleware-01 (remplace les « podman exec psql » du rôle
+# supermarket_middleware) : pg_stat_statements et compte otel du receiver PostgreSQL de l'agent EDOT.
+---
+# Accès administrateur (compte observability, Secret postgresql-admin chiffré dans secrets/).
+apiVersion: postgresql.sql.m.crossplane.io/v1alpha1
+kind: ClusterProviderConfig
+metadata:
+  name: postgresql
+spec:
+  sslMode: disable
+  defaultDatabase: observability_test
+  credentials:
+    source: PostgreSQLConnectionSecret
+    connectionSecretRef: {namespace: crossplane-system, name: postgresql-admin}
+---
+apiVersion: postgresql.sql.m.crossplane.io/v1alpha1
+kind: Extension
+metadata:
+  name: pg-stat-statements-observability-test
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: postgresql}
+  forProvider:
+    extension: pg_stat_statements
+    database: observability_test
+---
+# Le receiver lit db.server.top_query via la base par défaut « postgres »
+apiVersion: postgresql.sql.m.crossplane.io/v1alpha1
+kind: Extension
+metadata:
+  name: pg-stat-statements-postgres
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: postgresql}
+  forProvider:
+    extension: pg_stat_statements
+    database: postgres
+---
+apiVersion: postgresql.sql.m.crossplane.io/v1alpha1
+kind: Role
+metadata:
+  name: otel
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: postgresql}
+  forProvider:
+    privileges:
+      login: true
+    passwordSecretRef: {name: postgresql-otel, key: password}
+---
+apiVersion: postgresql.sql.m.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: otel-pg-monitor
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: postgresql}
+  forProvider:
+    role: otel
+    memberOf: pg_monitor
+---
+apiVersion: postgresql.sql.m.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: otel-select-stat-views
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: postgresql}
+  forProvider:
+    role: otel
+    database: observability_test
+    schema: pg_catalog
+    tables: [pg_stat_database, pg_stat_activity]
+    privileges: [SELECT]
+---
+apiVersion: postgresql.sql.m.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: otel-select-pg-stat-statements
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: postgresql}
+  forProvider:
+    role: otel
+    database: observability_test
+    schema: public
+    tables: [pg_stat_statements]
+    privileges: [SELECT]

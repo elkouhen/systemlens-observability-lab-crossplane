@@ -120,9 +120,9 @@ L'agent Java 2.28.1 passe en configuration déclarative YAML
 (`OTEL_CONFIG_FILE`, `file_format: "1.0"`), qui remplace les fichiers
 `otel.properties` des quatre applications :
 
-- `kubernetes/apps/supermarket-demo/default/otel/agent.yaml`, commun aux
+- `architecture/gitops/supermarket/otel-agent.yaml`, commun aux
   trois services ;
-- `kubernetes/apps/demo-api/default/otel/agent.yaml`.
+- `architecture/gitops/demo-api/otel-agent.yaml`.
 
 Les règles sont déclarées sous
 `instrumentation/development.java.common.http.client`, avec

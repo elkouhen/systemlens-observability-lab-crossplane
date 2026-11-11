@@ -1,0 +1,9 @@
+# Une Application Argo CD par groupe de gitops/ (voir gitops/README.md).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - crossplane.yaml
+  - otel-pipeline.yaml
+  - elastic.yaml
+  - supermarket.yaml
+  - demo-api.yaml

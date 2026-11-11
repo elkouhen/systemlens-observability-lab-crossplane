@@ -107,7 +107,7 @@
   until: otel_kafka_ready.rc == 0
 
 # Topics par plateforme (ADR-015), comptes SCRAM et ACL (ADR-017) : déclarés dans
-# platform/crossplane (OtelPlatform, accounts.yaml) et réconciliés par Crossplane.
+# gitops/otel-pipeline (OtelPlatform, kafka-accounts.yaml) et réconciliés par Crossplane.
 
 - name: Arrêter l’ancien Gateway OTEL du backend
   ansible.builtin.systemd_service:

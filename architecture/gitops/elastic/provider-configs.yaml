@@ -1,0 +1,58 @@
+# Accès de Crossplane à elk-01 : Terraform elastic/elasticstack (Elasticsearch, Kibana, Fleet) et
+# provider-http (API Kibana des dashboards). Secrets elastic-terraform et kibana-auth : secrets/.
+---
+# Elasticsearch, Kibana et Fleet (elk-01) via Terraform ; état stocké dans des Secrets
+apiVersion: tf.m.upbound.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: elastic
+spec:
+  pluginCache: true
+  credentials:
+    - filename: crossplane-elastic.auto.tfvars.json
+      source: Secret
+      secretRef: {namespace: crossplane-system, name: elastic-terraform, key: tfvars}
+  configuration: |
+    terraform {
+      required_providers {
+        elasticstack = {
+          source  = "elastic/elasticstack"
+          version = "~> 0.17.0"
+        }
+      }
+      backend "kubernetes" {
+        secret_suffix     = "elastic"
+        namespace         = "crossplane-system"
+        in_cluster_config = true
+      }
+    }
+    variable "elastic_password" {
+      type      = string
+      sensitive = true
+    }
+    provider "elasticstack" {
+      elasticsearch {
+        endpoints = ["http://192.168.33.40:9200"]
+        username  = "elastic"
+        password  = var.elastic_password
+      }
+      kibana {
+        endpoints = ["http://192.168.33.40:5601"]
+        username  = "elastic"
+        password  = var.elastic_password
+      }
+      fleet {
+        endpoint = "http://192.168.33.40:5601"
+        username = "elastic"
+        password = var.elastic_password
+      }
+    }
+---
+# Kibana en HTTP brut : l'en-tête Basic est lu dans le Secret kibana-auth au moment de l'appel
+apiVersion: http.m.crossplane.io/v1alpha2
+kind: ClusterProviderConfig
+metadata:
+  name: kibana
+spec:
+  credentials:
+    source: None

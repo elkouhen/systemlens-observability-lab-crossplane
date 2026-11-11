@@ -1,0 +1,135 @@
+# Comptes SCRAM du Kafka OTel (ADR-017), créés à chaud sans redémarrer le broker.
+# Les mots de passe sont dérivés du secret racine comme dans le lab
+# (sha256(KAFKA_OTEL_PUBLISHER_PASSWORD:<compte>)) et placés dans le Secret kafka-otel-accounts
+# par scripts/credentials.sh, pour qu'Ansible (clients sur les VM) et Crossplane partagent les mêmes.
+---
+# Kafka OTel (otel-backend-01) : otel_admin, super-utilisateur amorcé par Ansible (SASL/PLAIN)
+apiVersion: kafka.m.crossplane.io/v1alpha1
+kind: ClusterProviderConfig
+metadata:
+  name: kafka-otel
+spec:
+  credentials:
+    source: Secret
+    secretRef: {namespace: crossplane-system, name: kafka-otel-admin, key: credentials}
+---
+apiVersion: user.kafka.m.crossplane.io/v1alpha1
+kind: User
+metadata:
+  name: otel-publisher-otel-edge-01
+  namespace: crossplane-system
+  annotations:
+    crossplane.io/external-name: otel_publisher_otel_edge_01
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kafka-otel}
+  forProvider:
+    mechanisms: [SCRAM-SHA-512]
+    passwordSecretRef: {name: kafka-otel-accounts, key: otel_publisher_otel_edge_01}
+---
+apiVersion: user.kafka.m.crossplane.io/v1alpha1
+kind: User
+metadata:
+  name: otel-publisher-otel-backend-01
+  namespace: crossplane-system
+  annotations:
+    crossplane.io/external-name: otel_publisher_otel_backend_01
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kafka-otel}
+  forProvider:
+    mechanisms: [SCRAM-SHA-512]
+    passwordSecretRef: {name: kafka-otel-accounts, key: otel_publisher_otel_backend_01}
+---
+apiVersion: user.kafka.m.crossplane.io/v1alpha1
+kind: User
+metadata:
+  name: otel-consumer
+  namespace: crossplane-system
+  annotations:
+    crossplane.io/external-name: otel_consumer
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kafka-otel}
+  forProvider:
+    mechanisms: [SCRAM-SHA-512]
+    passwordSecretRef: {name: kafka-otel-accounts, key: otel_consumer}
+---
+# Collecteur backend : lit tous les topics otel-, avec le groupe otel-backend, et décrit le
+# cluster (kafkametrics de l'agent EDOT).
+apiVersion: acl.kafka.m.crossplane.io/v1alpha1
+kind: AccessControlList
+metadata:
+  name: otel-consumer-read-topics
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kafka-otel}
+  forProvider:
+    resourceType: Topic
+    resourceName: otel-
+    resourcePatternTypeFilter: Prefixed
+    resourcePrincipal: User:otel_consumer
+    resourceHost: "*"
+    resourceOperation: Read
+    resourcePermissionType: Allow
+---
+apiVersion: acl.kafka.m.crossplane.io/v1alpha1
+kind: AccessControlList
+metadata:
+  name: otel-consumer-describe-topics
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kafka-otel}
+  forProvider:
+    resourceType: Topic
+    resourceName: otel-
+    resourcePatternTypeFilter: Prefixed
+    resourcePrincipal: User:otel_consumer
+    resourceHost: "*"
+    resourceOperation: Describe
+    resourcePermissionType: Allow
+---
+apiVersion: acl.kafka.m.crossplane.io/v1alpha1
+kind: AccessControlList
+metadata:
+  name: otel-consumer-read-group
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kafka-otel}
+  forProvider:
+    resourceType: Group
+    resourceName: otel-backend
+    resourcePatternTypeFilter: Literal
+    resourcePrincipal: User:otel_consumer
+    resourceHost: "*"
+    resourceOperation: Read
+    resourcePermissionType: Allow
+---
+apiVersion: acl.kafka.m.crossplane.io/v1alpha1
+kind: AccessControlList
+metadata:
+  name: otel-consumer-describe-cluster
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kafka-otel}
+  forProvider:
+    resourceType: Cluster
+    resourceName: kafka-cluster
+    resourcePatternTypeFilter: Literal
+    resourcePrincipal: User:otel_consumer
+    resourceHost: "*"
+    resourceOperation: Describe
+    resourcePermissionType: Allow
+---
+apiVersion: acl.kafka.m.crossplane.io/v1alpha1
+kind: AccessControlList
+metadata:
+  name: otel-consumer-describeconfigs-cluster
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: kafka-otel}
+  forProvider:
+    resourceType: Cluster
+    resourceName: kafka-cluster
+    resourcePatternTypeFilter: Literal
+    resourcePrincipal: User:otel_consumer
+    resourceHost: "*"
+    resourceOperation: DescribeConfigs
+    resourcePermissionType: Allow

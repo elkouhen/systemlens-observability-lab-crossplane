@@ -2,7 +2,7 @@
 // contrôleur KRaft), aux outils d'administration et à Crossplane (provider-kafka).
 // Les comptes des producteurs (otel_publisher_<hôte>) et du collecteur backend (otel_consumer)
 // sont des comptes SCRAM-SHA-512 créés à chaud par Crossplane
-// (platform/crossplane/kafka-otel/accounts.yaml), avec leurs ACL.
+// (gitops/otel-pipeline/kafka-accounts.yaml), avec leurs ACL.
 KafkaServer {
   org.apache.kafka.common.security.plain.PlainLoginModule required
   username="{{ otel_kafka_admin_username }}"

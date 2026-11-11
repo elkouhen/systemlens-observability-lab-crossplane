@@ -1,0 +1,11 @@
+# Socle Crossplane synchronisé par Argo CD (Application crossplane) : les API du lab.
+#   apis/application    : Application, un service Java instrumenté (Deployment, Service, agent OTel) ;
+#   apis/otel-platform  : OtelPlatform, une plateforme OTel (topics Kafka, ACL des publishers).
+# install/ (Crossplane, paquets, runtime) est amorcé par make crossplane-install.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - apis/application/definition.yaml
+  - apis/application/composition.yaml
+  - apis/otel-platform/definition.yaml
+  - apis/otel-platform/composition.yaml

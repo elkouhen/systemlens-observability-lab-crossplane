@@ -55,7 +55,7 @@ architecture/scripts/vm shell supermarket-middleware-01 'sudo /opt/Elastic/Agent
 
 ## Sources IaC
 
-- Collecteurs Kubernetes : [`otel-kafka.yaml`](../architecture/platform/kubernetes/base/observability/otel-kafka.yaml) ;
-- instrumentation applicative : Application Crossplane [`application.yaml`](../kubernetes/apps/supermarket-demo/application.yaml), rendue par la [Composition](../architecture/platform/crossplane/applications/composition.yaml) ;
+- Collecteurs Kubernetes : [`otel-kafka.yaml`](../architecture/gitops/otel-pipeline/kubernetes-collectors.yaml) ;
+- instrumentation applicative : Application Crossplane [`application.yaml`](../architecture/gitops/supermarket/applications.yaml), rendue par la [Composition](../architecture/gitops/crossplane/apis/application/composition.yaml) ;
 - configuration EDOT VM : [`elastic-agent.yml.j2`](../architecture/ansible/roles/elastic_agent/templates/elastic-agent.yml.j2) ;
 - Collecteur Edge : [`otel-edge.yaml.j2`](../architecture/ansible/roles/otel_edge/templates/otel-edge.yaml.j2).

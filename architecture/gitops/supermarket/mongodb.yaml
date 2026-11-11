@@ -1,0 +1,66 @@
+# Supervision MongoDB de supermarket-middleware-01, déclarée (provider Terraform Kaginari/mongodb).
+# Remplace la création de otel_monitor par podman exec mongosh dans le rôle supermarket_middleware.
+# Le receiver mongodb des agents EDOT (elastic-agent.yml.j2) se connecte avec ce compte.
+---
+# MongoDB (supermarket-middleware-01) via Terraform : compte crossplane_admin amorcé par Ansible
+# (MongoDB tourne sans --auth, mais le provider s'authentifie toujours) ; état dans des Secrets.
+apiVersion: tf.m.upbound.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: mongodb
+spec:
+  pluginCache: true
+  credentials:
+    - filename: crossplane-mongodb.auto.tfvars.json
+      source: Secret
+      secretRef: {namespace: crossplane-system, name: mongodb-terraform, key: tfvars}
+  configuration: |
+    terraform {
+      required_providers {
+        mongodb = {
+          source  = "Kaginari/mongodb"
+          version = "~> 1.0"
+        }
+      }
+      backend "kubernetes" {
+        secret_suffix     = "mongodb"
+        namespace         = "crossplane-system"
+        in_cluster_config = true
+      }
+    }
+    variable "mongodb_admin_password" {
+      type      = string
+      sensitive = true
+    }
+    variable "otel_monitor_password" {
+      type      = string
+      sensitive = true
+    }
+    provider "mongodb" {
+      host          = "192.168.33.10"
+      port          = "27017"
+      username      = "crossplane_admin"
+      password      = var.mongodb_admin_password
+      auth_database = "admin"
+      direct        = true
+    }
+---
+apiVersion: tf.m.upbound.io/v1beta1
+kind: Workspace
+metadata:
+  name: mongodb-monitoring
+  namespace: crossplane-system
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: mongodb}
+  forProvider:
+    source: Inline
+    module: |
+      resource "mongodb_db_user" "otel_monitor" {
+        auth_database = "admin"
+        name          = "otel_monitor"
+        password      = var.otel_monitor_password
+        role {
+          role = "clusterMonitor"
+          db   = "admin"
+        }
+      }

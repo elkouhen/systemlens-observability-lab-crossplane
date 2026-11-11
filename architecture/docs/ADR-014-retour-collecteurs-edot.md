@@ -20,7 +20,7 @@ que les Elastic Agent des VM restaient en EDOT :
 
 | Collecteur | Emplacement |
 | --- | --- |
-| `otel-kubernetes` (DaemonSet) | `platform/kubernetes/base/observability/otel-kafka.yaml` |
+| `otel-kubernetes` (DaemonSet) | `gitops/otel-pipeline/kubernetes-collectors.yaml` |
 | `otel-kubernetes-cluster` (Deployment) | même fichier |
 | Collecteur Edge | `ansible/roles/otel_edge/` sur `otel-edge-01` |
 | Collecteur backend | `ansible/roles/otel_backend/` sur `otel-backend-01` |

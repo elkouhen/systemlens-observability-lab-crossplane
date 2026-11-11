@@ -13,7 +13,7 @@ xpack.reporting.encryptionKey: "{{ kibana_reporting_key }}"
 xpack.fleet.agents.enabled: true
 xpack.fleet.registryUrl: https://epr.elastic.co
 # Packages d'intégration, hôte Fleet Server et agent policies (eck-fleet-server, otel-fleet) :
-# déclarés dans platform/crossplane/elastic/fleet.yaml et réconciliés par Crossplane.
+# déclarés dans gitops/elastic/fleet.yaml et réconciliés par Crossplane.
 # Documentation : https://www.elastic.co/docs/reference/kibana/configuration-reference/telemetry-settings
 telemetry.optIn: false
 telemetry.allowChangingOptInStatus: false

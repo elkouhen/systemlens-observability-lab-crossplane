@@ -1,12 +1,20 @@
 # Ajouter une application Java observée
 
-Ce guide décrit le raccordement à la chaîne d'observabilité architecture. Un service est
-déclaré comme une `Application` Crossplane (`kubernetes/apps/<application>/application.yaml`) ;
-la Composition `architecture/platform/crossplane/applications/composition.yaml` en produit le
-Deployment, le Service et l'instrumentation OTel. Le répertoire contient aussi un
-`kustomization.yaml` (copier celui de `kubernetes/apps/demo-api`), et une Application Argo CD
-`architecture/platform/argocd/apps/<application>.yaml`, listée dans le `kustomization.yaml` du
-même répertoire, le synchronise depuis GitHub une fois committé et poussé.
+Ce guide décrit le raccordement à la chaîne d'observabilité architecture. Une application et ses
+bases forment un groupe, `architecture/gitops/<groupe>/` (modèle : `supermarket`, ou `demo-api`
+pour le cas minimal ; voir `architecture/gitops/README.md`) :
+
+- `namespace.yaml` et `application.yaml` : namespace et `Application` Crossplane, dont la
+  Composition `architecture/gitops/crossplane/apis/application/composition.yaml` produit le
+  Deployment, le Service et l'instrumentation OTel ;
+- `otel-agent.yaml` et `kustomization.yaml` (copier ceux de `demo-api`) ;
+- un fichier par back-end avec sa `ClusterProviderConfig` (par exemple `postgresql.yaml`) ;
+- `secrets/` : ajouter le groupe et ses Secrets dans `architecture/gitops/crossplane/scripts/credentials.sh`,
+  puis `make secrets-encrypt` (crée aussi `secret-generator.yaml`) ;
+- une Application Argo CD `architecture/gitops/argocd/apps/<groupe>.yaml`, listée dans le
+  `kustomization.yaml` de ce répertoire ; ajouter le groupe à `GITOPS_GROUPS` du `Makefile`.
+
+Le groupe est synchronisé depuis GitHub une fois committé et poussé.
 
 Ce guide décrit l'ajout d'une application Java Spring Boot à la chaîne
 d'observabilité du lab. Le chemin des signaux est le suivant :
@@ -22,7 +30,7 @@ plateforme que l'application déclare (ADR-020) ; le Collector backend en
 fait le namespace du data stream (ADR-019).
 
 L'application `apps/demo-api` est l'exemple minimal de ce guide : un seul
-service, sa plateforme `demo`, son Application `kubernetes/apps/demo-api/application.yaml`.
+service, sa plateforme `demo`, son Application `architecture/gitops/demo-api/application.yaml`.
 Sans Micrometer, elle laisse l'agent exporter aussi les métriques JVM
 (`otel.metrics.exporter=otlp`), au format sémantique OTel. Toutes les
 métriques, celles de l'agent comme celles de Micrometer, sont indexées en
@@ -48,7 +56,7 @@ L'Application ne donne que quelques paramètres : image et tag, port, chemin des
 plateforme OTel (`spec.otel.platform`), export Micrometer et variables propres au service
 (`spec.env`). La Composition configure l'agent sans l'attacher une seconde fois : elle monte
 la configuration déclarative `otel/agent.yaml`, incorporée par Kustomize
-(`kubernetes/apps/<application>/kustomization.yaml`) puis publiée en ConfigMap
+(`architecture/gitops/<groupe>/kustomization.yaml`) puis publiée en ConfigMap
 `<application>-otel-agent-config` (son empreinte redémarre les pods), et ajoute :
 
 ```yaml
@@ -107,7 +115,7 @@ configuration invalide n'arrête pas l'application : l'agent journalise
 `OpenTelemetry Javaagent failed to start` et l'application tourne sans
 télémétrie. Après un déploiement, vérifier l'absence de cette ligne dans les
 logs du pod. La clé du collecteur Edge reste dans le secret
-`otel-edge-client-keys`, copié par Crossplane (`architecture/platform/crossplane/kubernetes/secrets.yaml`) ; ne
+`otel-edge-client-keys`, versionné chiffré par SOPS dans le groupe (`architecture/gitops/<groupe>/secrets/`, `make secrets-encrypt`) ; ne
 jamais l'inscrire dans un manifest ou dans Git.
 
 Ne pas ajouter `-javaagent` dans `JAVA_TOOL_OPTIONS` : l'agent serait attaché
@@ -217,7 +225,7 @@ l'attribut.
 Le DaemonSet `otel-kubernetes` ne collecte plus les fichiers des pods : une
 application Java exporte ses logs par l'agent, ce qui évite les doublons.
 Pour une application d'un autre namespace qui ne peut écrire que sur stdout,
-rétablir dans `architecture/platform/kubernetes/base/observability/otel-kafka.yaml` :
+rétablir dans `architecture/gitops/otel-pipeline/kubernetes-collectors.yaml` :
 
 - le montage `hostPath` `/var/log/pods` (lecture seule) du DaemonSet ;
 - un receiver `filelog` limité à ce namespace, avec l'opérateur `container` :

@@ -56,7 +56,7 @@ Règles de travail :
   `kafka-configs.sh` dans le conteneur `observability-otel-kafka`, trois
   partitions, rétention actuelle, pour `otel-{logs,metrics,traces}-<plateforme>-<env>`.
   Retirer les topics OTel du Job `otel-telemetry-topics`
-  (`platform/kubernetes/base/observability/otel-kafka.yaml`), qui ne garde
+  (`gitops/otel-pipeline/kubernetes-collectors.yaml`), qui ne garde
   que les topics métier.
   Contrôle : `make ansible-validate`, `make kubernetes-validate` ; après
   B19, `kafka-topics.sh --list` affiche les neuf topics.
@@ -126,7 +126,7 @@ Règles de travail :
 ## Lot 3 : Kubernetes et validation OTLP
 
 - [x] **B13 Collecteurs Kubernetes sans `hostmetrics` ni marqueur.**
-  `platform/kubernetes/base/observability/otel-kafka.yaml` : retirer le
+  `gitops/otel-pipeline/kubernetes-collectors.yaml` : retirer le
   receiver `hostmetrics` du DaemonSet et les processors `resource/edge-source`
   et `resource/environment` des deux collecteurs ; conserver
   `resource/k8s_cluster`. Vérifier que les dashboards `[OTel] Host` du

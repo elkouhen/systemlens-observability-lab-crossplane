@@ -1,0 +1,28 @@
+# Groupe supermarché (Application Argo CD supermarket) : les trois services Java (Application
+# Crossplane) et leurs back-ends sur supermarket-middleware-01, PostgreSQL (provider-sql),
+# MongoDB (Terraform) et Kafka métier (provider-kafka), avec leurs Secrets.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - applications.yaml
+  - postgresql.yaml
+  - mongodb.yaml
+  - kafka-topics.yaml
+generators:
+  - secret-generator.yaml
+configMapGenerator:
+  # Configuration de l'agent Java OTel (otel-agent.yaml, relue par make trace-context-verify),
+  # recopiée dans spec.otel.agentConfig de chaque Application puis retirée du rendu.
+  - name: otel-agent-config-source
+    files:
+      - agent=otel-agent.yaml
+    options:
+      disableNameSuffixHash: true
+      annotations: {config.kubernetes.io/local-config: "true"}
+replacements:
+  - source: {kind: ConfigMap, name: otel-agent-config-source, fieldPath: data.agent}
+    targets:
+      - select: {kind: Application}
+        fieldPaths: [spec.otel.agentConfig]
+        options: {create: true}

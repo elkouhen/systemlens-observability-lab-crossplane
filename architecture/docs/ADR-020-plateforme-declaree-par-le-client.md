@@ -137,9 +137,9 @@ doit exister au registre avec l'Edge en `publisher`.
   `transform/data-stream-namespace` depuis les attributs déclarés.
 - `architecture/ansible/roles/elastic_agent/templates/elastic-agent.yml.j2` :
   `platform.id` sur `resource/agent` et la télémétrie interne.
-- `architecture/platform/kubernetes/base/observability/otel-kafka.yaml` :
+- `architecture/gitops/otel-pipeline/kubernetes-collectors.yaml` :
   `resource/platform` à la place de `resource/edge-source`.
-- `kubernetes/apps/*/application.yaml` (`spec.otel`) : `platform.id`,
+- `architecture/gitops/*/application*.yaml` (`spec.otel`) : `platform.id`,
   `deployment.environment.name`, `k8s.cluster.name`.
 - `validation/otel/` : `platform.id` sur la métrique de validation.
 

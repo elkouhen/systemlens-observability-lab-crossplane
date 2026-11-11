@@ -1,0 +1,6 @@
+# Plateforme demo en homologation (ADR-015). Jamais supprimé par un élagage Argo CD.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: h0tl-demo-app
+  annotations: {argocd.argoproj.io/sync-options: Delete=false}

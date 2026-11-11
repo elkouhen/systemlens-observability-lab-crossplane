@@ -1,0 +1,11 @@
+# Chaîne OTel : Kafka OTel de otel-backend-01 (registre des plateformes, comptes SCRAM, ACL),
+# Service vers le Collecteur Edge et collecteurs OTel de k3s-01 (Application Argo CD otel-pipeline).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - platforms.yaml
+  - kafka-accounts.yaml
+  - edge-service.yaml
+  - kubernetes-collectors.yaml
+generators:
+  - secret-generator.yaml

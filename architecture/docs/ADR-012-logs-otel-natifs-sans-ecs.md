@@ -92,7 +92,7 @@ les requêtes existantes sur `logs-*` fonctionnent sans copie de champ.
 - Note du 2026-11-08 : les loggers des frameworks (Spring, Tomcat, client
   Kafka, Flyway, Hikari, Micrometer) n'émettent qu'à partir de `WARN`, seuls
   ceux de `io.systemlens` restent en `INFO`
-  (`LOGGING_LEVEL_*` de `kubernetes/apps/supermarket-demo/application.yaml`). Tout log `INFO`
+  (`LOGGING_LEVEL_*` de `architecture/gitops/supermarket/applications.yaml`). Tout log `INFO`
   porte donc un `trace_id`, hormis la ligne de démarrage de la classe
   `*Application` ; `make observability-schema-verify` le contrôle. Les logs
   sans `trace_id` restants signalent un problème hors requête.

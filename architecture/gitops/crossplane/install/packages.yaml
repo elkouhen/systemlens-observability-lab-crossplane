@@ -1,0 +1,47 @@
+# Providers et fonctions Crossplane du lab
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-kafka
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/provider-kafka:v1.4.2
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-sql
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/provider-sql:v0.16.2
+---
+# Elasticsearch et Fleet : provider Terraform officiel elastic/elasticstack
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-terraform
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/provider-terraform:v1.2.0
+  runtimeConfigRef:
+    name: terraform
+---
+# Kibana : dashboards poussés tels quels depuis les JSON versionnés
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-http
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/provider-http:v1.0.15
+---
+apiVersion: pkg.crossplane.io/v1beta1
+kind: Function
+metadata:
+  name: function-go-templating
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/function-go-templating:v0.13.2
+---
+apiVersion: pkg.crossplane.io/v1beta1
+kind: Function
+metadata:
+  name: function-auto-ready
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/function-auto-ready:v0.7.3

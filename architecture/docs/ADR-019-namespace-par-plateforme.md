@@ -110,8 +110,8 @@ données par leur dataset, valeur constante par data stream.
   `ansible/roles/otel_edge/templates/otel-edge.yaml.j2`,
   `ansible/roles/otel_edge/tasks/routes.yml`,
   `ansible/inventory/group_vars/otel_edge_nodes.yml`,
-  `platform/elk/dashboards/business-metrics*.{json,ndjson}`,
-  `platform/elk/alerts/observability-policies.json`,
+  `gitops/elastic/assets/dashboards/business-metrics*.{json,ndjson}`,
+  `gitops/elastic/assets/alerts/observability-policies.json`,
   `platform/elk/scripts/verify-{otel-routing,observability-contracts,dashboard-data}.sh`,
   `Makefile` (`demo-api-jvm-metrics-verify`), la documentation.
 

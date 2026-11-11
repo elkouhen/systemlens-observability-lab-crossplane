@@ -1,0 +1,164 @@
+# Application -> ConfigMap de l'agent OTel, Deployment et Service, dans le namespace de l'Application.
+# Reprend les manifests Kustomize qui déployaient les services (noms, labels, sécurité, sondes,
+# variables) et le raccordement OTel décrit dans apps/ADDING_APPLICATION.md :
+# - clé Bearer de l'Edge lue dans le Secret otel-edge-client-keys (gitops/<groupe>/secrets/, SOPS) ;
+# - attributs de ressource platform.id et deployment.environment.name (ADR-020) ;
+# - agent Java déjà attaché par l'ENTRYPOINT de l'image, configuré par OTEL_CONFIG_FILE.
+# L'empreinte de la configuration de l'agent est posée sur le gabarit des pods : la modifier
+# redémarre le service, comme le suffixe de hachage du configMapGenerator Kustomize.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: application
+spec:
+  compositeTypeRef:
+    apiVersion: apps.lab.io/v1alpha1
+    kind: Application
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource }}
+            {{- $name := $xr.metadata.name }}
+            {{- $ns := $xr.metadata.namespace }}
+            {{- $otel := $xr.spec.otel }}
+            {{- $image := printf "%s:%s" $xr.spec.image.name $xr.spec.image.tag }}
+            {{- $configMap := printf "%s-otel-agent-config" $name }}
+            {{- $probe := dict "tcpSocket" (dict "port" "http") }}
+            {{- if $xr.spec.probePath }}
+            {{- $probe = dict "httpGet" (dict "path" $xr.spec.probePath "port" "http") }}
+            {{- end }}
+            ---
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: {{ $configMap }}
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "otel-agent-config" }}
+            data:
+              agent.yaml: {{ toJson $otel.agentConfig }}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "deployment" }}
+            spec:
+              replicas: 1
+              # Un seul nœud k3s : remplacer le pod plutôt que créer un surge évite un rollout bloqué.
+              strategy:
+                type: RollingUpdate
+                rollingUpdate:
+                  maxSurge: 0
+                  maxUnavailable: 1
+              selector:
+                matchLabels:
+                  app.kubernetes.io/name: {{ $name }}
+              template:
+                metadata:
+                  labels:
+                    app.kubernetes.io/name: {{ $name }}
+                  annotations:
+                    lab.io/otel-agent-config-sha256: {{ sha256sum $otel.agentConfig }}
+                spec:
+                  securityContext:
+                    runAsNonRoot: true
+                    runAsUser: 10001
+                    runAsGroup: 10001
+                    seccompProfile:
+                      type: RuntimeDefault
+                  containers:
+                    - name: {{ $name }}
+                      securityContext:
+                        allowPrivilegeEscalation: false
+                        capabilities:
+                          drop: ["ALL"]
+                      image: {{ $image }}
+                      imagePullPolicy: IfNotPresent
+                      ports:
+                        - name: http
+                          containerPort: {{ $xr.spec.port }}
+                      env:
+                        - name: OTEL_EDGE_KEY
+                          valueFrom:
+                            secretKeyRef:
+                              name: otel-edge-client-keys
+                              key: otel-kubernetes-cluster
+                        - name: OTEL_EXPORTER_OTLP_HEADERS
+                          value: Authorization=Bearer $(OTEL_EDGE_KEY)
+                        {{- if $otel.micrometerMetrics }}
+                        - name: MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED
+                          value: "true"
+                        - name: MANAGEMENT_OTLP_METRICS_EXPORT_URL
+                          value: {{ $otel.edgeEndpoint }}/v1/metrics
+                        - name: MANAGEMENT_OTLP_METRICS_EXPORT_STEP
+                          value: 15s
+                        - name: MANAGEMENT_PROMETHEUS_METRICS_EXPORT_ENABLED
+                          value: "false"
+                        {{- end }}
+                        - name: K8S_POD_NAME
+                          valueFrom:
+                            fieldRef: {fieldPath: metadata.name}
+                        - name: K8S_POD_UID
+                          valueFrom:
+                            fieldRef: {fieldPath: metadata.uid}
+                        - name: K8S_NODE_NAME
+                          valueFrom:
+                            fieldRef: {fieldPath: spec.nodeName}
+                        - name: OTEL_RESOURCE_ATTRIBUTES
+                          value: service.name={{ $name }},platform.id={{ $otel.platform }},deployment.environment.name={{ $otel.environment }},k8s.cluster.name={{ $otel.clusterName }},service.node.name=$(K8S_POD_NAME),host.name=$(K8S_NODE_NAME),k8s.namespace.name={{ $ns }},k8s.pod.name=$(K8S_POD_NAME),k8s.pod.uid=$(K8S_POD_UID),k8s.node.name=$(K8S_NODE_NAME)
+                        - name: OTEL_CONFIG_FILE
+                          value: /opt/opentelemetry/agent.yaml
+                        {{- range $xr.spec.env }}
+                        - {{ toJson . }}
+                        {{- end }}
+                      volumeMounts:
+                        - name: otel-agent-config
+                          mountPath: /opt/opentelemetry
+                          readOnly: true
+                      readinessProbe: {{ toJson $probe }}
+                      livenessProbe: {{ toJson $probe }}
+                      startupProbe: {{ toJson (merge (dict "periodSeconds" 5 "failureThreshold" 60 "timeoutSeconds" 3) $probe) }}
+                      resources:
+                        requests:
+                          cpu: 100m
+                          memory: 128Mi
+                        limits:
+                          memory: {{ $xr.spec.memoryLimit }}
+                  volumes:
+                    - name: otel-agent-config
+                      configMap:
+                        name: {{ $configMap }}
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "service" }}
+            spec:
+              selector:
+                app.kubernetes.io/name: {{ $name }}
+              ports:
+                - name: http
+                  port: {{ $xr.spec.port }}
+                  targetPort: http
+            ---
+            apiVersion: apps.lab.io/v1alpha1
+            kind: Application
+            status:
+              image: {{ $image }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

@@ -17,7 +17,7 @@ Les quatre collecteurs du chemin de données utilisaient l'image EDOT
 
 | Collecteur | Emplacement | Rôle |
 | --- | --- | --- |
-| `otel-kubernetes` (DaemonSet) | `platform/kubernetes/base/observability/otel-kafka.yaml` | Métriques hôte et kubelet → Edge (logs des pods retirés par ADR-012) |
+| `otel-kubernetes` (DaemonSet) | `gitops/otel-pipeline/kubernetes-collectors.yaml` | Métriques hôte et kubelet → Edge (logs des pods retirés par ADR-012) |
 | `otel-kubernetes-cluster` (Deployment) | même fichier | Métriques du cluster → Edge |
 | Collecteur Edge | `ansible/roles/otel_edge/` sur `otel-edge-01` | OTLP authentifié → Kafka OTel |
 | Collecteur backend | `ansible/roles/otel_backend/` sur `otel-backend-01` | Kafka OTel → APM Server / Elasticsearch |

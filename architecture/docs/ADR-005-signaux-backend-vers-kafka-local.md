@@ -79,7 +79,7 @@ indépendamment, avec une période de recouvrement permettant de vérifier le
 nouveau chemin avant la révocation de l'ancien secret.
 
 Les templates Edge et les exporteurs OTLP utilisent maintenant ces clés Bearer.
-Les clés Kubernetes sont copiées par Crossplane (`platform/crossplane/kubernetes/secrets.yaml`)
+Les clés Kubernetes sont versionnées chiffrées par SOPS (`gitops/<groupe>/secrets/otel-edge-client-keys.sops.yaml`)
 à partir
 des variables d'environnement `OTEL_EDGE_KEY_KUBERNETES` et
 `OTEL_EDGE_KEY_KUBERNETES_CLUSTER`. Les clés des agents VM sont fournies à

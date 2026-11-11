@@ -11,7 +11,7 @@ et Actuator, puis lire les contrôleurs et le planificateur dans
 Les traces sont produites par l'agent Java OpenTelemetry, attaché au démarrage
 du conteneur, et envoyées en OTLP au collecteur Edge ; elles ne nécessitent
 aucun SDK dans ce module. L'Application Crossplane `order-service`
-(`kubernetes/apps/supermarket-demo/application.yaml`) configure l'agent : identité du service, environnement et clé du collecteur.
+(`architecture/gitops/supermarket/applications.yaml`) configure l'agent : identité du service, environnement et clé du collecteur.
 
 ## API OpenAPI
 

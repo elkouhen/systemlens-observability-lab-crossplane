@@ -40,7 +40,7 @@
       changed_when: false
 
     # La rétention des topics supermarket.* est déclarée dans
-    # platform/crossplane/kafka-business/topics.yaml.
+    # gitops/supermarket/kafka-topics.yaml.
 
 - name: Réconcilier la rétention Kafka OTel
   hosts: otel_backend_nodes
@@ -76,4 +76,4 @@
       changed_when: false
 
     # La rétention des topics otel-* est déclarée par l'API OtelPlatform
-    # (platform/crossplane/kafka-otel/composition.yaml).
+    # (gitops/crossplane/apis/otel-platform/composition.yaml).

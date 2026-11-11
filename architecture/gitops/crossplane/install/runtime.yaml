@@ -1,0 +1,87 @@
+# Runtime des packages Crossplane.
+# - provider-terraform télécharge le provider Terraform elastic/elasticstack : il doit
+#   faire confiance à la CA du proxy d'entreprise (ConfigMap ca-bundle = bundle système de k3s-01).
+# - il stocke son état Terraform dans des Secrets (backend "kubernetes") de crossplane-system ;
+# - ses providers Terraform sont gardés dans le cache local de l'hôte (/var/cache/lab).
+---
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: terraform
+spec:
+  serviceAccountTemplate:
+    metadata:
+      name: provider-terraform
+  deploymentTemplate:
+    spec:
+      selector: {}
+      template:
+        spec:
+          containers:
+            - name: package-runtime
+              env:
+                - name: SSL_CERT_FILE
+                  value: /etc/ca-bundle/ca-certificates.crt
+                # Chaque Workspace s'initialise sans fichier de verrouillage : sans cette option,
+                # Terraform ignore le cache des providers et les retélécharge à chaque reconstruction.
+                - name: TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE
+                  value: "true"
+              volumeMounts:
+                - name: ca-bundle
+                  mountPath: /etc/ca-bundle
+                  readOnly: true
+                - name: plugin-cache
+                  mountPath: /tf/plugin-cache
+          volumes:
+            - name: ca-bundle
+              configMap:
+                name: ca-bundle
+            # Cache des providers Terraform (TF_PLUGIN_CACHE_DIR) dans le cache local de l'hôte,
+            # monté par Lima sur k3s-01 : conservé d'une reconstruction à l'autre.
+            - name: plugin-cache
+              hostPath:
+                path: /var/cache/lab/terraform-plugins
+                type: DirectoryOrCreate
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: provider-terraform-state
+  namespace: crossplane-system
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: provider-terraform-state
+  namespace: crossplane-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: provider-terraform-state
+subjects:
+  - kind: ServiceAccount
+    name: provider-terraform
+    namespace: crossplane-system
+---
+# Crossplane v2 compose directement des ressources Kubernetes natives (Deployments, Services...) :
+# on lui donne les droits correspondants par agrégation.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crossplane-compose-native-resources
+  labels:
+    rbac.crossplane.io/aggregate-to-crossplane: "true"
+rules:
+  - apiGroups: [""]
+    resources: [secrets, configmaps, services]
+    verbs: ["*"]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: ["*"]

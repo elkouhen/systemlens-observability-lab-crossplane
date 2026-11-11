@@ -93,10 +93,10 @@ tire les métriques agrégées de l'UI APM (ADR-018).
 | Composant | Responsabilité | Source de configuration |
 | --- | --- | --- |
 | `otel-edge-01` | Recevoir l’OTLP Kubernetes et VM puis publier dans Kafka | `architecture/ansible/roles/otel_edge/` |
-| EDOT DaemonSet | Collecter les métriques `kubeletstats` du nœud | `architecture/platform/kubernetes/base/observability/` |
+| EDOT DaemonSet | Collecter les métriques `kubeletstats` du nœud | `architecture/gitops/otel-pipeline/` |
 | `supermarket-middleware-01` | Fournir Kafka, MongoDB et PostgreSQL | `architecture/ansible/` |
 | `otel-backend-01` | Consommer Kafka et exporter les signaux vers Elastic | `architecture/ansible/` |
-| `otel-edge-01` | Exposer les points d’entrée et héberger le Collecteur Edge | `architecture/ansible/` et `architecture/platform/kubernetes/` |
+| `otel-edge-01` | Exposer les points d’entrée et héberger le Collecteur Edge | `architecture/ansible/` et `architecture/gitops/otel-pipeline/` |
 | `elk-01` | Fournir Elasticsearch, Kibana et Fleet Server | `architecture/ansible/` |
 | Elastic Agent EDOT | Collecter les logs et métriques des cinq VM, `k3s-01` compris, et les exporter vers l'Edge déclaré par la VM | `architecture/ansible/roles/elastic_agent/` |
 

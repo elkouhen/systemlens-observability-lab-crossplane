@@ -1,0 +1,16 @@
+# Application racine (app of apps), appliquée par make argocd-apps-apply : elle synchronise les
+# Application de gitops/argocd/apps depuis la branche main du dépôt GitHub.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lab
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/elkouhen/systemlens-observability-lab-crossplane.git
+    targetRevision: main
+    path: architecture/gitops/argocd/apps
+  destination: {server: https://kubernetes.default.svc, namespace: argocd}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}

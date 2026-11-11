@@ -109,12 +109,12 @@ les topics de la plateforme de la VM jusqu’au Collector backend.
 
 | Domaine | Source versionnée |
 | --- | --- |
-| Architecture et manifests Kubernetes | `architecture/platform/kubernetes/` |
-| Collecteurs et buffer Kafka | `architecture/platform/kubernetes/base/observability/otel-kafka.yaml` |
-| Instrumentation applicative | `kubernetes/apps/supermarket-demo/application.yaml` (Application Crossplane, `architecture/platform/crossplane/applications/composition.yaml`) |
+| Architecture et manifests Kubernetes | `architecture/gitops/` (un répertoire par groupe) |
+| Collecteurs et buffer Kafka | `architecture/gitops/otel-pipeline/kubernetes-collectors.yaml` |
+| Instrumentation applicative | `architecture/gitops/supermarket/applications.yaml` (Application Crossplane, `architecture/gitops/crossplane/apis/application/composition.yaml`) |
 | Provisionnement des VM | `architecture/ansible/` |
-| Configuration EDOT VM et intégrations Elastic | `architecture/ansible/roles/elastic_agent/` et `architecture/platform/elk/fleet/` |
-| Dashboards et objets Kibana | `architecture/platform/elk/dashboards/` |
+| Configuration EDOT VM et intégrations Elastic | `architecture/ansible/roles/elastic_agent/` et `architecture/gitops/elastic/assets/fleet/` |
+| Dashboards et objets Kibana | `architecture/gitops/elastic/assets/dashboards/` |
 | Validation partagée | `validation/otel/` et cibles du `Makefile` |
 
 Toute modification durable doit être réalisée dans ces sources puis appliquée

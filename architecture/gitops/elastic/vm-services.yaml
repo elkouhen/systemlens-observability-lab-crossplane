@@ -1,0 +1,52 @@
+# Services Kubernetes vers Elasticsearch et Kibana de elk-01 (cibles des IngressRoutes).
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-vm
+  namespace: elastic-stack
+spec:
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+---
+# Endpoints (et non EndpointSlice) : le Traefik 2.11 embarqué par k3s ne lit
+# que les Endpoints pour résoudre les backends des IngressRoute. Kubernetes en
+# dérive automatiquement l'EndpointSlice utilisée par kube-proxy.
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: elasticsearch-vm
+  namespace: elastic-stack
+subsets:
+  - addresses:
+      - ip: 192.168.33.40
+    ports:
+      - name: http
+        port: 9200
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana-vm
+  namespace: elastic-stack
+spec:
+  ports:
+    - name: http
+      port: 5601
+      targetPort: 5601
+---
+# Endpoints (et non EndpointSlice) : le Traefik 2.11 embarqué par k3s ne lit
+# que les Endpoints pour résoudre les backends des IngressRoute. Kubernetes en
+# dérive automatiquement l'EndpointSlice utilisée par kube-proxy.
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: kibana-vm
+  namespace: elastic-stack
+subsets:
+  - addresses:
+      - ip: 192.168.33.40
+    ports:
+      - name: http
+        port: 5601

@@ -66,7 +66,7 @@ La vérification ILM exclut le data stream système
 `metrics-endpoint.metadata_current_default`, géré par l'intégration Endpoint
 de Fleet. Les flux `logs-*`, `metrics-*` et `traces-*` de la télémétrie du lab
 restent couverts par la policy déclarée dans
-`platform/elk/ilm/retention.json`.
+`gitops/elastic/assets/ilm/retention.json`.
 
 Les collecteurs Kubernetes s'authentifient auprès d'Edge avec deux clés Bearer
 distinctes, une pour `otel-kubernetes` et une pour
@@ -74,6 +74,6 @@ distinctes, une pour `otel-kubernetes` et une pour
 `OTEL_EDGE_KEY_KUBERNETES` et `OTEL_EDGE_KEY_KUBERNETES_CLUSTER`, puis exécuter
 `make secrets-encrypt`, committer et pousser les Secrets chiffrés (Argo CD les applique) avant
 `make kubernetes-observability-deploy`.
-Les clés sont copiées par Crossplane (`platform/crossplane/kubernetes/secrets.yaml`) dans le
-Secret Kubernetes `otel-edge-client-keys` de chaque namespace. Les
+Les clés sont versionnées chiffrées (SOPS) dans le Secret Kubernetes `otel-edge-client-keys` de
+chaque namespace, dans le groupe concerné (`gitops/<groupe>/secrets/`). Les
 VM utilisent chacune leur clé `OTEL_EDGE_KEY_<HOST>` (ADR-015).

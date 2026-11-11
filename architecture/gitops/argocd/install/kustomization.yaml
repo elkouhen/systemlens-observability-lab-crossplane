@@ -1,0 +1,33 @@
+# Installation d'Argo CD dans k3s-01 (make argocd-install), amorcée hors GitOps comme Crossplane.
+# Manifeste amont épinglé, plus deux adaptations au lab :
+# - plugin sidecar ksops (repo-server.yaml, cmp-ksops.yaml), utilisé par toutes les Application des
+#   groupes pour déchiffrer leurs Secrets SOPS (clé age : Secret sops-age) ;
+# - interface en HTTP derrière Traefik : http://argocd.localhost:8080.
+# Le bundle CA de k3s-01 (racine du proxy TLS d'entreprise comprise) est déposé par make dans
+# argocd-tls-certs-cm pour github.com.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.7/manifests/install.yaml
+  - ingress.yaml
+  - cmp-ksops.yaml
+patches:
+  - path: repo-server.yaml
+  - target: {kind: ConfigMap, name: argocd-cm}
+    patch: |
+      - op: add
+        path: /data
+        value:
+          # Objets de comptage créés par Crossplane à chaque usage d'une ProviderConfig : ni
+          # versionnés ni utiles à l'état des applications.
+          resource.exclusions: |
+            - apiGroups: ["*"]
+              kinds: ["ProviderConfigUsage", "ClusterProviderConfigUsage"]
+              clusters: ["*"]
+  - target: {kind: ConfigMap, name: argocd-cmd-params-cm}
+    patch: |
+      - op: add
+        path: /data
+        value:
+          server.insecure: "true"

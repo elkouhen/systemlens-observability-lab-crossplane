@@ -28,7 +28,7 @@ de l'UI APM pour un service Java OTel :
 | `http.server.request.duration` | Histogramme des requêtes HTTP entrantes |
 
 La configuration déclarative de l'agent est dans
-`kubernetes/apps/demo-api/default/otel/agent.yaml`, chargée par
+`architecture/gitops/demo-api/otel-agent.yaml`, chargée par
 `OTEL_CONFIG_FILE`, avec un export des métriques toutes les 15 secondes. Les
 trois signaux partent en OTLP HTTP sur le port `4318` du Service
 `otel-edge-vm`. Les
@@ -49,7 +49,7 @@ sondes Kubernetes sont TCP pour ne pas créer de transactions.
   (`architecture/ansible/inventory/group_vars/all.yml`) avec `otel-edge-01`
   en `publisher`, puis `make otel-backend-vm-provision` (topics) et
   `make otel-edge-vm-provision` (plateformes servies). L'Application
-  `kubernetes/apps/demo-api/application.yaml` déclare `platform.id=demo` et
+  `architecture/gitops/demo-api/application.yaml` déclare `platform.id=demo` et
   `deployment.environment.name=homologation` (ADR-020) ; sans plateforme
   servie, l'Edge rejette les signaux.
 - Docker pour construire l'image, le cluster k3s et le Secret
@@ -64,7 +64,7 @@ Depuis `architecture/` :
 make demo-api-test                # test Maven (Java 21)
 make demo-api-build               # image demo-api:1.1.1 avec l'agent Java OTel
 make demo-api-import              # import de l'image dans k3s
-make demo-api-deploy              # applique l'Application kubernetes/apps/demo-api/application.yaml
+make demo-api-deploy              # applique l'Application architecture/gitops/demo-api/application.yaml
                                   # (build, import et déploiement sont inclus dans make deploy)
 make demo-api-call                # GET /api/hello?name=lab depuis le cluster
 make demo-api-call DEMO_API_PATH='/api/fail?reason=demo'
@@ -100,7 +100,7 @@ apps/demo-api/
   src/main/java/io/systemlens/demo/
     DemoApiApplication.java     démarrage
     HelloController.java        GET /api/hello, GET /api/fail
-kubernetes/apps/demo-api/
+architecture/gitops/demo-api/
   base/                         namespace h0tl-demo-app, Deployment, Service
   default/                      overlay : otel/agent.yaml, patch d'instrumentation
 ```

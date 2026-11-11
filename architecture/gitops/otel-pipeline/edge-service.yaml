@@ -1,0 +1,33 @@
+# Service Kubernetes vers le Collecteur EDOT Edge de otel-edge-01 : point d'entrée OTLP des
+# collecteurs Kubernetes et des applications.
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-edge-vm
+  namespace: elastic-stack
+spec:
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: otel-edge-vm-1
+  namespace: elastic-stack
+  labels:
+    kubernetes.io/service-name: otel-edge-vm
+addressType: IPv4
+ports:
+  - name: otlp-grpc
+    port: 4317
+  - name: otlp-http
+    port: 4318
+endpoints:
+  - addresses: [192.168.33.30]
+    conditions:
+      ready: true

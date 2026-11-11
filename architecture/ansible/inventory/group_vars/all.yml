@@ -19,7 +19,7 @@ postgresql_otel_password: "{{ postgresql_password }}"
 mongodb_otel_user: otel_monitor
 mongodb_password: "{{ lookup('env', 'MONGODB_PASSWORD') | default(lookup('env', 'POSTGRESQL_PASSWORD') | default('', true), true) }}"
 mongodb_otel_password: "{{ mongodb_password }}"
-# Compte administrateur MongoDB de Crossplane (platform/crossplane/mongodb) : même dérivation que
+# Compte administrateur MongoDB de Crossplane (gitops/supermarket/mongodb.yaml) : même dérivation que
 # scripts/credentials.sh, sha256("<MONGODB_PASSWORD>:crossplane_admin").
 mongodb_crossplane_user: crossplane_admin
 mongodb_crossplane_password: "{{ (mongodb_password ~ ':crossplane_admin') | hash('sha256') }}"
@@ -29,11 +29,11 @@ otel_kafka_cluster_id: otelQ1Sh-9_ISia_zwGINzRvyQ
 otel_kafka_controller_voters: 2@192.168.33.20:9093
 otel_gateway_kafka_broker: 192.168.33.20:9092
 # Registre des plateformes (ADR-015, ADR-017, ADR-020) : source unique dans
-# platform/crossplane/platforms.yaml (ressources OtelPlatform). Crossplane en déduit les
+# gitops/otel-pipeline/platforms.yaml (ressources OtelPlatform). Crossplane en déduit les
 # topics otel-{logs,metrics,traces}-<platform>-<environment> et les ACL d'écriture de chaque
 # publisher ; Ansible le relit ici pour le routage de l'Edge et les vérifications.
 otel_platforms: >-
-  {{ lookup('ansible.builtin.file', inventory_dir ~ '/../../platform/crossplane/platforms.yaml')
+  {{ lookup('ansible.builtin.file', inventory_dir ~ '/../../gitops/otel-pipeline/platforms.yaml')
      | from_yaml_all | select | map(attribute='spec') | list }}
 # Identifiants Kafka OTel (ADR-017). Chaque producteur (Edge ou agent EDOT
 # kafka-local) a son utilisateur otel_publisher_<hôte>, limité par ACL aux
