@@ -1,4 +1,4 @@
 ---
-# Hub tools-01 : Argo CD, Crossplane, cert-manager. Traefik sert l'interface Argo CD ; pas de
-# Service LoadBalancer.
-k3s_disable: [servicelb]
+# Hub tools-01 : Argo CD, Crossplane, cert-manager. Traefik et ServiceLB servent l'interface
+# Argo CD (port 80 du nœud, transféré sur le port 8080 de l'hôte).
+k3s_disable: []

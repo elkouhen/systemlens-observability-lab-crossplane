@@ -1,7 +1,7 @@
 ---
 # Serveur k3s mono-nœud de chaque cluster (rôle k3s). Composants embarqués désactivés par cluster
-# (k3s_disable) : Traefik ne sert que l'interface Argo CD du hub ; ServiceLB expose les Services
-# LoadBalancer d'Elastic sur elk-01.
+# (k3s_disable) : Traefik ne sert que l'interface Argo CD du hub ; ServiceLB expose Traefik sur le
+# hub et les Services LoadBalancer d'Elastic sur elk-01.
 k3s_disable: []
 firewall_tcp_ports: [6443, 10250]
 firewall_udp_ports: [8472]

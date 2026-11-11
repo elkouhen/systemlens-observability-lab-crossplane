@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Redémarre les cinq VM Lima de l'architecture sans reprovisionnement Ansible.
+# Redémarre les quatre VM Lima de l'architecture sans reprovisionnement Ansible.
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 architecture_root="$(cd -- "${script_dir}/.." && pwd)"
 vm_bin="${VM:-${script_dir}/vm}"
-k3s_vm_name="${K3S_VM_NAME:-k3s-01}"
-nodes=(supermarket-middleware-01 otel-backend-01 otel-edge-01 elk-01 "${k3s_vm_name}")
+nodes=(tools-01 k3s-01 elk-01 otel-edge-01)
 
 cd "${architecture_root}"
 

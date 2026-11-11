@@ -1,10 +1,10 @@
-# Installation d'Argo CD dans k3s-01 (make argocd-install), amorcée hors GitOps comme Crossplane.
-# Manifeste amont épinglé, plus deux adaptations au lab :
+# Installation d'Argo CD dans le hub tools-01 (make argocd-install), amorcée hors GitOps.
+# Manifeste amont épinglé, plus trois adaptations au lab :
 # - plugin sidecar ksops (repo-server.yaml, cmp-ksops.yaml), utilisé par les Application
 #   <groupe>-secrets pour déchiffrer les Secrets SOPS des groupes (clé age : Secret sops-age) ;
-# - interface en HTTP derrière Traefik : http://argocd.localhost:8080.
-# Le bundle CA de k3s-01 (racine du proxy TLS d'entreprise comprise) est déposé par make dans
-# argocd-tls-certs-cm pour github.com.
+# - interface en HTTP derrière Traefik : http://argocd.localhost:8080 ;
+# - bundle CA du nœud du hub (racine du proxy TLS d'entreprise comprise) monté dans le repo-server
+#   (repo-server.yaml), pour GitHub et les dépôts Helm.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: argocd

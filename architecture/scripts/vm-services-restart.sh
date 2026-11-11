@@ -7,6 +7,7 @@ architecture_root="$(cd -- "${script_dir}/.." && pwd)"
 vm_bin="${VM:-${script_dir}/vm}"
 kubectl_bin="${KUBECTL:-kubectl}"
 kubeconfig_file="${K3S_KUBECONFIG:-${architecture_root}/.kube/k3s.config}"
+kube_dir="${architecture_root}/.kube"
 
 command -v limactl >/dev/null || {
   printf 'Lima (limactl) est requis pour redémarrer les services.\n' >&2
@@ -42,49 +43,35 @@ wait_remote_command() {
   return 1
 }
 
-restart_remote_services supermarket-middleware-01 \
-  observability-mongodb.service observability-kafka.service observability-postgresql.service \
-  elastic-agent.service
-wait_remote_command supermarket-middleware-01 'PostgreSQL' \
-  'sudo podman exec observability-postgresql pg_isready -U observability -d observability_test'
-wait_remote_command supermarket-middleware-01 'Kafka métier' \
-  'sudo podman exec --env KAFKA_OPTS= observability-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list'
-
-restart_remote_services otel-backend-01 \
-  observability-otel-kafka.service observability-otel-backend.service \
-  elastic-agent.service
-wait_remote_command otel-backend-01 'Kafka OTel' \
-  'sudo podman exec --env KAFKA_OPTS= observability-otel-kafka /opt/kafka/bin/kafka-metadata-quorum.sh --bootstrap-server localhost:9092 --command-config /opt/kafka/config/otel-kafka-client.properties describe --status'
-wait_remote_command otel-backend-01 'collecteur backend OTel' \
-  'curl --fail --silent http://127.0.0.1:13134/'
-
 restart_remote_services otel-edge-01 \
   haproxy.service observability-otel-edge.service elastic-agent.service
 wait_remote_command otel-edge-01 'collecteur Edge OTel' \
   'curl --fail --silent http://127.0.0.1:13135/'
 
-restart_remote_services elk-01 \
-  observability-elasticsearch.service observability-kibana.service \
-  observability-fleet-server.service \
-  elastic-agent.service
-
-restart_remote_services k3s-01 k3s.service
-if [[ ! -r "${kubeconfig_file}" ]] || ! command -v "${kubectl_bin}" >/dev/null 2>&1; then
-  printf 'Kubeconfig ou kubectl indisponible : %s\n' "${kubeconfig_file}" >&2
-  exit 1
-fi
-
-printf '\n=== Attente du cluster Kubernetes ===\n'
-for attempt in $(seq 1 30); do
-  if KUBECONFIG="${kubeconfig_file}" "${kubectl_bin}" wait --for=condition=Ready node/k3s-01 --timeout=5s >/dev/null 2>&1; then
-    break
-  fi
-  if [[ "${attempt}" -eq 30 ]]; then
-    printf 'Le nœud k3s-01 n’est pas prêt.\n' >&2
-    exit 1
-  fi
-  sleep 2
+# Clusters k3s : le hub d'abord (Argo CD, Crossplane), puis les clusters cibles. Les workloads
+# (opérateurs, bases, Kafka, Elastic, collecteurs) redémarrent avec k3s.
+for entry in tools-01:tools k3s-01:k3s elk-01:elk; do
+  node="${entry%%:*}"
+  restart_remote_services "${node}" k3s.service
+  printf 'Attente du nœud %s\n' "${node}"
+  for attempt in $(seq 1 60); do
+    if "${kubectl_bin}" --kubeconfig "${kube_dir}/${entry#*:}.config" wait --for=condition=Ready "node/${node}" --timeout=5s >/dev/null 2>&1; then
+      break
+    fi
+    if [[ "${attempt}" -eq 60 ]]; then
+      printf 'Le nœud %s n’est pas prêt.\n' "${node}" >&2
+      exit 1
+    fi
+    sleep 2
+  done
 done
+restart_remote_services k3s-01 elastic-agent.service
+restart_remote_services elk-01 elastic-agent.service
+
+printf '\n=== Attente des back-ends de k3s-01 ===\n'
+KUBECONFIG="${kubeconfig_file}" "${kubectl_bin}" -n h0tl-supermarche-app wait --for=condition=Ready \
+  cluster.postgresql.cnpg.io/supermarket-postgresql kafka/supermarket-kafka --timeout=300s
+KUBECONFIG="${kubeconfig_file}" "${kubectl_bin}" -n elastic-stack wait --for=condition=Ready kafka/otel-kafka --timeout=300s
 
 printf '\n=== Redémarrage des workloads applicatifs ===\n'
 # kubectl ≥ 1.37 n'accepte plus --all pour rollout : les Deployments sont nommés explicitement.

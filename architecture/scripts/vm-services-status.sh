@@ -6,7 +6,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 architecture_root="$(cd -- "${script_dir}/.." && pwd)"
 vm_bin="${VM:-${script_dir}/vm}"
 kubectl_bin="${KUBECTL:-kubectl}"
-kubeconfig_file="${K3S_KUBECONFIG:-${architecture_root}/.kube/k3s.config}"
+kube_dir="${architecture_root}/.kube"
 
 command -v limactl >/dev/null || {
   printf 'Lima (limactl) est requis pour afficher l’état des services.\n' >&2
@@ -40,27 +40,22 @@ fi
 REMOTE
 }
 
-run_remote_status supermarket-middleware-01 \
-  observability-mongodb.service observability-kafka.service observability-postgresql.service \
-  elastic-agent.service
+run_remote_status tools-01 k3s.service
 
-run_remote_status otel-backend-01 \
-  observability-otel-kafka.service observability-otel-backend.service \
-  elastic-agent.service
+run_remote_status k3s-01 k3s.service elastic-agent.service
+
+run_remote_status elk-01 k3s.service elastic-agent.service
 
 run_remote_status otel-edge-01 \
   haproxy.service observability-otel-edge.service elastic-agent.service
 
-run_remote_status elk-01 \
-  observability-elasticsearch.service observability-kibana.service \
-  observability-fleet-server.service \
-  elastic-agent.service
-
-run_remote_status k3s-01 k3s.service
-
-printf '\n=== Workloads Kubernetes sur k3s-01 ===\n'
-if [[ -r "${kubeconfig_file}" ]] && command -v "${kubectl_bin}" >/dev/null 2>&1; then
-  KUBECONFIG="${kubeconfig_file}" "${kubectl_bin}" get pods --all-namespaces -o wide || true
-else
-  printf 'Kubeconfig ou kubectl indisponible : %s\n' "${kubeconfig_file}"
-fi
+# Workloads des trois clusters : hub (Argo CD, Crossplane), k3s-01 (services, back-ends,
+# collecteurs) et elk-01 (Elasticsearch, Kibana, Fleet Server).
+for cluster in tools k3s elk; do
+  printf '\n=== Workloads Kubernetes (%s) ===\n' "${cluster}"
+  if [[ -r "${kube_dir}/${cluster}.config" ]] && command -v "${kubectl_bin}" >/dev/null 2>&1; then
+    "${kubectl_bin}" --kubeconfig "${kube_dir}/${cluster}.config" get pods --all-namespaces -o wide || true
+  else
+    printf 'Kubeconfig ou kubectl indisponible : %s\n' "${kube_dir}/${cluster}.config"
+  fi
+done

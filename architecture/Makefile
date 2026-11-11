@@ -772,8 +772,6 @@ ARGOCD_APP ?=
 # argocd-wait : 0 pour n'attendre que la synchronisation (ressources appliquées), pas leur santé.
 ARGOCD_HEALTHY ?= 1
 SOPS_AGE_KEY_FILE ?= $(HOME)/.config/sops/age/keys.txt
-# Dépôts joints par Argo CD à travers le proxy TLS d'entreprise : Git et charts Helm.
-ARGOCD_TLS_HOSTS := github.com charts.crossplane.io charts.jetstack.io cloudnative-pg.github.io strimzi.io mongodb.github.io helm.elastic.co
 export SOPS_AGE_KEY_FILE
 
 secrets-encrypt: ## Chiffrer (SOPS, age) les Secrets des providers depuis .observability-credentials.env ; committer et pousser ensuite
@@ -790,17 +788,11 @@ gitops-check: ## Signaler les changements locaux qu'Argo CD ne verra pas (non co
 	test -z "$$dirty" || echo "$$dirty" >&2; \
 	test "$$ahead" = 0 || echo "Attention : $$ahead commit(s) non poussé(s) : Argo CD synchronise origin/main." >&2
 
-argocd-install: ## Installer Argo CD (KSOPS, clé age, CA du hub) dans le hub tools-01
+argocd-install: ## Installer Argo CD (KSOPS, clé age) dans le hub tools-01
 	@test -s '$(SOPS_AGE_KEY_FILE)' || { echo "Clé age introuvable : $(SOPS_AGE_KEY_FILE)" >&2; exit 1; }
 	@$(KUBECTL) create namespace argocd --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
 	@$(KUBECTL) -n argocd create secret generic sops-age --from-file=keys.txt='$(SOPS_AGE_KEY_FILE)' --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
 	@$(KUBECTL) apply --server-side --force-conflicts -k $(ARGOCD_ROOT)/install >/dev/null
-	@# Bundle CA du hub (racine du proxy TLS d'entreprise comprise) pour joindre GitHub et les
-	@# dépôts Helm (Crossplane, cert-manager, opérateurs des clusters cibles).
-	@test -s $(ARCH_ROOT)/.kube/ca-certificates.crt || $(VM) shell $(HUB_VM_NAME) 'cat /etc/ssl/certs/ca-certificates.crt' > $(ARCH_ROOT)/.kube/ca-certificates.crt
-	@$(KUBECTL) -n argocd create configmap argocd-tls-certs-cm \
-		$(foreach host,$(ARGOCD_TLS_HOSTS),--from-file=$(host)=$(ARCH_ROOT)/.kube/ca-certificates.crt) \
-		--dry-run=client -o yaml | $(KUBECTL) apply --server-side --force-conflicts -f - >/dev/null
 	@$(KUBECTL) -n argocd rollout status deployment/argocd-repo-server deployment/argocd-server --timeout=10m
 	@$(KUBECTL) -n argocd rollout status statefulset/argocd-application-controller --timeout=10m
 	@echo "Argo CD prêt : http://argocd.localhost:8080 (make argocd-ui)"

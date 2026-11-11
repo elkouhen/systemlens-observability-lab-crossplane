@@ -2,6 +2,9 @@
 # (kustomize et ksops, sans shell), sert les Application qui le demandent (source.plugin.name:
 # ksops) : kustomize build avec le générateur KSOPS, qui déchiffre les Secrets SOPS avec la clé
 # age du Secret sops-age. Les autres Application gardent le Kustomize intégré, sans plugin exec.
+# Le repo-server lit le bundle CA du nœud du hub (racine du proxy TLS d'entreprise comprise,
+# installée par le rôle Ansible common) à la place de celui de l'image : Git et dépôts Helm, y
+# compris les téléchargements redirigés vers d'autres hôtes, sans liste d'hôtes à tenir.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,6 +13,9 @@ spec:
   template:
     spec:
       containers:
+        - name: argocd-repo-server
+          volumeMounts:
+            - {name: node-ca-bundle, mountPath: /etc/ssl/certs/ca-certificates.crt, readOnly: true}
         - name: ksops
           image: viaductoss/ksops:v4.5.1
           # Serveur CMP copié par l'initContainer amont (copyutil) dans var-files.
@@ -30,6 +36,8 @@ spec:
             - {name: cmp-tmp, mountPath: /tmp}
             - {name: sops-age, mountPath: /sops-age, readOnly: true}
       volumes:
+        - name: node-ca-bundle
+          hostPath: {path: /etc/ssl/certs/ca-certificates.crt, type: File}
         - name: cmp-ksops
           configMap: {name: argocd-cmp-ksops}
         - name: cmp-tmp

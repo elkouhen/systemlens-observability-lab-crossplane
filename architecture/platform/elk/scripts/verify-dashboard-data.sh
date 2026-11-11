@@ -120,7 +120,7 @@ hostmetrics_response="$(curl --fail --silent --show-error --insecure \
   -H 'Content-Type: application/json' \
   -X POST "${elasticsearch_url}/metrics-hostmetricsreceiver.otel-*/_search" \
   --data "{\"size\":0,\"query\":{\"bool\":{\"filter\":[{\"range\":{\"@timestamp\":{\"gte\":\"now-${window}\"}}},{\"term\":{\"data_stream.dataset\":\"hostmetricsreceiver.otel\"}},{\"exists\":{\"field\":\"host.name\"}},{\"exists\":{\"field\":\"system.cpu.utilization\"}}]}},\"aggs\":{\"hosts\":{\"terms\":{\"field\":\"host.name\",\"size\":20}}}}")"
-expected_hostmetrics_hosts=(supermarket-middleware-01 otel-backend-01 otel-edge-01 elk-01)
+expected_hostmetrics_hosts=(k3s-01 otel-edge-01 elk-01)
 for host in "${expected_hostmetrics_hosts[@]}"; do
   host_count="$(jq -r --arg host "${host}" \
     '[.aggregations.hosts.buckets[] | select(.key == $host) | .doc_count] | first // 0' <<<"${hostmetrics_response}")"

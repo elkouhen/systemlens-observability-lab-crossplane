@@ -3,81 +3,80 @@
 Architecture de référence avec Elastic Stack `9.5.4`. Les applications,
 Kubernetes et les VM utilisent OpenTelemetry avec Kafka comme tampon : les
 collecteurs Kubernetes, Edge et backend comme les agents VM utilisent la
-distribution Elastic EDOT `9.5.4` (ADR-014). Le
-cluster Kubernetes de référence est k3s sur `k3s-01` ; k3d reste disponible
-uniquement pour la comparaison pendant la migration.
-Les agents VM restent standalone et sont supervisés par Fleet via OpAMP, sans
-policy Fleet de collecte concurrente.
+distribution Elastic EDOT `9.5.4` (ADR-014). Les agents VM restent standalone
+et sont supervisés par Fleet via OpAMP, sans policy Fleet de collecte
+concurrente.
 
 ## Ce qui change par rapport à systemlens-observability-lab
 
-Même topologie (5 VM, mêmes noms, mêmes IP `192.168.33.x`, mêmes rôles), avec trois différences :
+Quatre VM au lieu de cinq : un **cluster de gestion** (hub) pilote deux clusters cibles, et tout ce
+qui tourne dans les clusters est déclaré dans Git.
 
-- **Configuration des back-ends par Crossplane.** Topics, comptes SCRAM et ACL Kafka, supervision
+- **Hub de gestion `tools-01`.** Argo CD, Crossplane et ses providers, cert-manager et la clé age
+  tournent dans le cluster k3s du hub. Argo CD y synchronise depuis la branche `main` du dépôt
+  GitHub toute la configuration de [`gitops/`](gitops/README.md), un répertoire par groupe logique,
+  Secrets compris (chiffrés par SOPS avec age) : voir [`gitops/argocd`](gitops/argocd/README.md).
+  Un changement est déployé une fois poussé.
+- **Crossplane compose les clusters cibles.** Par provider-kubernetes (une `ClusterProviderConfig`
+  par cluster), les API du lab produisent les objets de `k3s-01` et `elk-01` : services Java
+  (`Application`), PostgreSQL (`PostgreSQLInstance`, CloudNativePG), MongoDB (`MongoDBInstance`,
+  MongoDB Controllers for Kubernetes), Kafka métier et OTel (`KafkaCluster`, Strimzi), Elasticsearch,
+  Kibana et Fleet Server (`ObservabilityStack`, ECK). Topics, comptes SCRAM et ACL Kafka, supervision
   PostgreSQL et MongoDB, ILM, pipelines, clé API, Fleet, data view, dashboards et règles Kibana sont
-  déclarés dans [`gitops/`](gitops/README.md), un répertoire par groupe logique, et réconciliés en continu depuis
-  `k3s-01`, comme les objets Kubernetes : Secrets, manifests de la plateforme et services applicatifs
-  (API `Application`). Ansible n'installe plus que les hôtes.
-- **GitOps par Argo CD.** Argo CD, dans `k3s-01`, synchronise toute cette configuration depuis la
-  branche `main` du dépôt GitHub, Secrets compris (chiffrés par SOPS avec age) : voir
-  [`gitops/argocd`](gitops/argocd/README.md). Un changement est déployé une fois poussé.
+  configurés par les autres providers, à travers les points d'accès réseau des back-ends.
+- **Opérateurs et collecteurs par Argo CD.** Les charts Helm des opérateurs (CloudNativePG, Strimzi,
+  MongoDB, ECK) et les collecteurs OTel de `k3s-01` sont synchronisés par Argo CD directement dans
+  leur cluster cible.
+- **Ansible n'installe plus que les hôtes** : OS, k3s, Collecteur Edge et HAProxy, agents EDOT.
 - **VM Lima.** Les VM sont décrites dans `lima/` et pilotées par `scripts/vm` (création,
   provisionnement Ansible, shell, arrêt, suppression), utilisé par le `Makefile`. Les IP `192.168.33.x` sont
   portées par le réseau partagé Lima `user-v2` et joignables entre VM. Depuis le Mac, on passe par
-  les redirections de port `127.0.0.1` : 6443 (k3s), 9200, 5601 et 8220 (elk-01), 4317 et 4318
-  (otel-edge-01).
+  les redirections de port `127.0.0.1` : 6443 (API du hub), 8080 (interface Argo CD), 6444 (API de
+  k3s-01), 6445 (API de elk-01), 9200, 5601 et 8220 (elk-01), 4317 et 4318 (otel-edge-01).
 
 ## Cache local des téléchargements
 
 Une reconstruction télécharge plusieurs gigaoctets (images Elastic, Kafka, PostgreSQL, MongoDB,
-collecteurs, archive Elastic Agent, k3s et ses images, Crossplane et ses providers) à travers le proxy
-TLS ; le débit est le même depuis le Mac et depuis une VM (environ 13 Mo/s). Le répertoire
-`~/.cache/poc-crossplane-lab` de l'hôte est monté par Lima (virtiofs, écriture) sur `/var/cache/lab`
-dans les 5 VM et survit à `make vms-destroy` :
+opérateurs, collecteurs, archive Elastic Agent, k3s et ses images, Crossplane et ses providers) à
+travers le proxy TLS ; le débit est le même depuis le Mac et depuis une VM (environ 13 Mo/s). Le
+répertoire `~/.cache/poc-crossplane-lab` de l'hôte est monté par Lima (virtiofs, écriture) sur
+`/var/cache/lab` dans les 4 VM et survit à `make vms-destroy` :
 
 | Contenu | Lu par | Déposé par |
 |---|---|---|
-| `files/` : archive Elastic Agent, agent Jolokia, script, binaire et images système de k3s | `lab-cache file` (rôles `elastic_agent`, `otel_backend`, `k3s`) | même outil, au premier téléchargement |
+| `files/` : archive Elastic Agent, script, binaire et images système de k3s | `lab-cache file` (rôles `elastic_agent`, `k3s`) | même outil, au premier téléchargement |
 | `apt/` : paquets `.deb` | `lab-cache debs-restore` (rôle `common`) | `lab-cache debs-save` |
-| `podman/` : images des services des VM | `lab-cache image` (rôles `elk`, `otel_backend`, `otel_edge`, `supermarket_middleware`) | même outil, après `podman pull` |
-| `k3s/` : images de `k3s-01` (Crossplane, providers, fonctions, collecteurs, applications) | rôle `k3s`, importées au premier démarrage | `make cache-save-k3s-images`, à la fin de `make deploy` |
-| `terraform-plugins/`, `crossplane-packages/` | provider-terraform et Crossplane (volumes `hostPath`) | les mêmes, en fonctionnement |
+| `podman/` : image du Collecteur Edge | `lab-cache image` (rôle `otel_edge`) | même outil, après `podman pull` |
+| `k3s/<vm>/` : images de chaque cluster k3s (hub : Argo CD, Crossplane, providers ; k3s-01 : opérateurs, bases, Kafka, collecteurs, applications ; elk-01 : ECK, Elastic) | rôle `k3s`, importées au premier démarrage | `make cache-save-k3s-images`, à la fin de `make deploy` |
+| `terraform-plugins/`, `crossplane-packages/` | provider-terraform et Crossplane du hub (volumes `hostPath`) | les mêmes, en fonctionnement |
 
 `lab-cache` (`ansible/roles/common/files/lab-cache`) lit le cache, sinon télécharge puis dépose le
 fichier sous un nom temporaire renommé ensuite, ce qui protège les VM provisionnées en parallèle. Les
 noms portent la référence exacte (URL ou image) : un cache vide ou partiel donne le même résultat,
 plus lentement. `make cache-status` affiche le contenu et le montage, `make cache-clean` le vide.
 
-## Topologie VM
+## Topologie
 
 ```text
-Kubernetes / opérateur
-          |
-          v
-      otel-edge-01  -- OTLP
-          |
-          v
-      otel-backend-01  -- Kafka OTel + backend OTel
-          |
-          v
-      supermarket-middleware-01  -- Kafka métier + MongoDB + PostgreSQL
+tools-01     192.168.33.60  hub k3s : Argo CD, Crossplane et providers, cert-manager, clé age
+   │  Argo CD (charts Helm, collecteurs)  ·  Crossplane (provider-kubernetes, providers des back-ends)
+   ├──▶ k3s-01   192.168.33.50  k3s applicatif : services Java, PostgreSQL (CloudNativePG),
+   │                            MongoDB, Kafka métier et Kafka OTel (Strimzi), collecteurs OTel
+   │                            (Kubernetes, backend, supervision des back-ends)
+   └──▶ elk-01   192.168.33.40  k3s + ECK : Elasticsearch, Kibana, Fleet Server 9.5.4 (Basic)
 
-      supermarket-middleware-01  -- Kafka métier + MongoDB + PostgreSQL
-
-      otel-backend-01  -- Kafka OTel + exporteur backend --> elk-01
-                                                  Elasticsearch + Kibana + Fleet Server
+otel-edge-01 192.168.33.30  VM Ansible : Collecteur EDOT Edge et HAProxy (point d'entrée OTLP)
 ```
 
-`otel-edge-01` est le point d’entrée OTLP exposé. Les accès Kibana,
-Elasticsearch, Fleet et APM sont directs vers `elk-01`. `otel-backend-01` héberge
-le Kafka dédié OTel et le Collector backend, `supermarket-middleware-01` héberge les middlewares du
-scénario et son Kafka métier, et `elk-01` porte le stockage et la consultation
-Elastic.
+Chemin des signaux : applications et collecteurs de `k3s-01`, agents EDOT des VM → Collecteur Edge
+(`otel-edge-01`, OTLP avec clé Bearer) → Kafka OTel de `k3s-01` (NodePort 31092, SCRAM, un topic
+par plateforme) → collecteur backend de `k3s-01` → Elasticsearch de `elk-01` (192.168.33.40:9200).
+Les accès Kibana, Elasticsearch et Fleet restent directs vers `elk-01` (Services LoadBalancer
+de k3s sur 9200, 5601 et 8220).
 
-Le code Java et les images sont partagés avec la plateforme. Le déploiement et
-la recette sont décrits dans le README Ansible et les cibles du `Makefile`.
-Le cluster k3s de référence se prépare avec `make k3s-vm-up`, puis son
-kubeconfig local peut être exporté avec `make k3s-kubeconfig`.
+Les clusters se pilotent depuis le Mac avec les kubeconfig écrits par `make kubeconfigs` :
+`.kube/tools.config` (hub, `KUBECONFIG` par défaut du `Makefile`), `.kube/k3s.config` et
+`.kube/elk.config` (variables `KUBECTL_K3S` et `KUBECTL_ELK` du `Makefile`).
 
 ## Commandes principales
 
@@ -103,8 +102,8 @@ Pour construire et déployer :
 ```bash
 make apps-build
 make apps-test
-make vms-start
-make architecture-deploy
+make vms-start                # crée et provisionne les 4 VM (Ansible)
+make architecture-deploy      # make deploy : hub, clusters cibles, Elastic, applications
 ```
 
 Pour contrôler la chaîne d'observabilité et l'application :
@@ -125,17 +124,18 @@ Kafka et les erreurs de collecte. Le déployer ou le réconcilier avec :
 make otel-flow-dashboard-deploy
 ```
 
-La cible utilise le secret Elasticsearch du namespace `elastic-stack`. Le
+La cible utilise le secret Elasticsearch du namespace `elastic-stack` du hub. Le
 dashboard est alimenté par les index `metrics-*`, `traces-*` et `logs-*` et
 utilise une fenêtre par défaut de quinze minutes.
 
 `make vm-services-status` affiche, VM par VM, l'état des unités systemd, des
-conteneurs Podman et des workloads Kubernetes présents sur `k3s-01`. Le
-diagnostic est en lecture seule.
+conteneurs Podman et des workloads des trois clusters k3s. Le diagnostic est
+en lecture seule.
 
 `make vm-services-restart` redémarre les services des VM dans l'ordre des
-dépendances, redémarre ensuite les Deployments applicatifs Kubernetes et
-attend leur rollout. Cette opération perturbe temporairement la plateforme.
+dépendances (Edge, puis k3s du hub et des clusters cibles), attend les
+back-ends de `k3s-01`, redémarre ensuite les Deployments applicatifs et attend
+leur rollout. Cette opération perturbe temporairement la plateforme.
 
 Les opérations de cycle de vie et de diagnostic avancé restent disponibles
 depuis `make help`, notamment `make retention-deploy` et `make otel-validate`.
@@ -145,7 +145,8 @@ l'opérateur.
 Documents propres à l'architecture :
 
 - [diagramme C4 interactif](https://elkouhen.github.io/systemlens-observability-lab/c4.html#/) ;
-- [provisionnement des VM `supermarket-middleware-01`, `otel-backend-01`, `otel-edge-01` et `elk-01`](ansible/README.md) ;
+- [provisionnement des VM `tools-01`, `k3s-01`, `elk-01` et `otel-edge-01`](ansible/README.md) ;
+- [configuration GitOps des groupes et des clusters cibles](gitops/README.md) ;
 
 La rétention des signaux et des logs est vérifiable avec
 `make retention-verify`.
