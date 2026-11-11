@@ -7,6 +7,7 @@ kind: Kustomization
 resources:
   - secrets-app.yaml
   - namespace.yaml
+  - target.yaml
   - stack.yaml
   - provider-configs.yaml
   - elasticsearch.yaml

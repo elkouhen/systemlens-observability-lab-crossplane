@@ -1,0 +1,16 @@
+# Objets du groupe dans le cluster cible elk-01, hors API : le namespace de l'instance
+# ObservabilityStack (stack.yaml).
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: namespace
+  namespace: elastic-stack
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: elk-01}
+  # Comme sur le hub, le namespace n'est jamais supprimé avec l'objet (pas de politique Delete).
+  managementPolicies: [Observe, Create, Update, LateInitialize]
+  forProvider:
+    manifest:
+      apiVersion: v1
+      kind: Namespace
+      metadata: {name: elastic-stack}

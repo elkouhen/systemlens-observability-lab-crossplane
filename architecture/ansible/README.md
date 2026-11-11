@@ -1,18 +1,19 @@
 # Provisionnement Ansible des VM
 
-Les playbooks de ce répertoire créent l'infrastructure de données partagée.
-L’architecture crée cinq VM séparées : `supermarket-middleware-01` pour MongoDB, Kafka métier et PostgreSQL,
-`otel-backend-01` pour le broker Kafka dédié OTel et le collecteur backend OTel, `otel-edge-01` pour HAProxy et le
-Collecteur Edge (EDOT Collector) et
-`elk-01` pour Elasticsearch, Kibana et Fleet Server, et `k3s-01` pour le serveur
-k3s et les workloads Kubernetes.
-Chaque VM reçoit un Elastic Agent en mode EDOT standalone. Il collecte les logs
-et métriques locaux et les envoie en OTLP au Collecteur Edge. Exception :
-`otel-backend-01` publie directement ses métriques, logs, traces et sa
-télémétrie interne dans le Kafka OTel local, car cette VM ne dépend pas de
-l'accès OTLP à `otel-edge-01`. Aucun signal produit par l'agent EDOT du backend
-ne passe par Edge. Le Kafka OTel du backend reste le buffer des signaux
-Kubernetes et VM ; le Kafka de `supermarket-middleware-01` reste réservé aux événements métier.
+Les playbooks de ce répertoire installent les hôtes du lab. L'architecture compte quatre VM :
+`tools-01`, cluster k3s de gestion (hub : Argo CD, Crossplane, cert-manager), `k3s-01`, cluster k3s
+applicatif (services Java, PostgreSQL, MongoDB, Kafka métier et OTel, collecteurs OTel), `elk-01`,
+cluster k3s d'observabilité (Elasticsearch, Kibana et Fleet Server sous ECK), et `otel-edge-01`
+pour HAProxy et le Collecteur Edge (EDOT Collector). Ansible n'installe que les hôtes : système,
+k3s, Edge et agents EDOT ; tout ce qui tourne dans les clusters est déployé depuis le hub par Argo
+CD et Crossplane ([`../gitops`](../gitops/README.md)).
+
+`k3s-01`, `elk-01` et `otel-edge-01` reçoivent un Elastic Agent en mode EDOT standalone. Il
+collecte les logs et métriques locaux et les envoie en OTLP au Collecteur Edge. Le hub n'en a pas.
+La supervision de PostgreSQL, MongoDB et des deux Kafka, autrefois portée par les agents EDOT de
+`supermarket-middleware-01` et `otel-backend-01` (VM supprimées), est faite dans `k3s-01` par le
+collecteur `otel-middleware` (`gitops/otel-pipeline/k3s-01/middleware-collector.yaml`), avec les
+mêmes receivers et donc les mêmes data streams.
 
 La cible `make fleet-opamp-enable` active en plus le monitoring Fleet OpAMP
 des agents EDOT vers Fleet Server sur `elk-01`. Les agents restent standalone :
@@ -29,7 +30,7 @@ backend les écrit dans Elasticsearch. Fleet peut ainsi afficher la
 consommation CPU et mémoire des agents dans la liste des collecteurs OpAMP et
 les dashboards peuvent suivre les erreurs et la performance des pipelines.
 
-Le collecteur backend ne commite un offset Kafka qu'après l'écriture du
+Le collecteur backend (Deployment `otel-backend` de `k3s-01`) ne commite un offset Kafka qu'après l'écriture du
 message dans la file persistante de son exporteur (`message_marking.after`) :
 un redémarrage peut rejouer des messages, mais n'en perd pas. Si
 Elasticsearch est indisponible, la file se remplit puis le lag du groupe
@@ -56,15 +57,15 @@ l’horloge dès qu’elle dérive de plus d’une seconde. Ce réglage ne suffi
 après une veille de l’hôte : la VM reprend avec des minutes de retard, chrony
 mêle des mesures d’avant et d’après le saut, marque toutes ses sources trop
 variables (`~`) et, sans source sélectionnée, ne saute jamais l’horloge
-(constaté le 2026-11-07 : jusqu’à 1 024 s de retard sur les cinq VM). Le timer
+(constaté le 2026-11-07 : jusqu’à 1 024 s de retard sur les VM). Le timer
 `chrony-resume-check.timer` vérifie donc chaque minute qu’une source est
 sélectionnée ; sinon, il exécute `chronyc reset sources` puis `chronyc burst`,
 et `makestep` recale l’horloge en une à deux minutes. Les tâches chrony sont
 dans `roles/common/tasks/chrony.yml` ; `make time-sync-apply` les applique
-seules aux cinq VM, sans redéployer le reste. Cette
+seules aux quatre VM, sans redéployer le reste. Cette
 synchronisation continue est nécessaire aux fenêtres temporelles des dashboards
 et au chemin OTLP → Kafka → Elasticsearch. `rtcsync` maintient également
-l’horloge matérielle alignée sur l’horloge système. Vérifier les cinq VM avec
+l’horloge matérielle alignée sur l’horloge système. Vérifier les quatre VM avec
 `make time-sync-verify` ; la commande attend une source NTP sélectionnée et un
 état `Leap status : Normal` sur chaque nœud.
 
@@ -85,71 +86,46 @@ Avant toute installation de paquets, `site.yml` retire durablement la route par
 défaut du réseau privé avec une surcharge Netplan et configure des
 résolveurs IPv4 sur l’interface NAT. Les VM Lima utilisent Ubuntu 24.04 LTS
 (modèle `template:ubuntu-24.04`, `lima/base.yaml`).
-Sur `supermarket-middleware-01`, la même configuration conserve une route
-persistante vers le réseau des pods k3s (`10.42.0.0/16` via `k3s-01`) afin que
-les connexions Kubernetes vers PostgreSQL, MongoDB et Kafka aient un chemin
-retour explicite. `k3s-01` classe également ce réseau dans la zone firewalld
-`trusted` afin que le trafic des pods puisse sortir par son interface privée.
 Le rôle `common` actualise les index APT juste avant l'installation afin d'éviter
 les références à des versions retirées des miroirs Ubuntu.
 Les valeurs par défaut (`1.1.1.1,8.8.8.8`) sont déclarées par `vm_dns_servers`
 dans `inventory/group_vars/all.yml` et doivent être remplacées par les DNS de l'entreprise
 si le réseau sortant les impose.
 
-La cible `make stock-view` affiche le catalogue et le stock depuis PostgreSQL
-sur `supermarket-middleware-01`.
+La cible `make stock-view` affiche le catalogue et le stock depuis l'instance PostgreSQL
+(CloudNativePG) de `k3s-01`.
 
-Le receiver PostgreSQL OTel émet aussi les événements `db.server.query_sample`
-et `db.server.top_query`. L'extension `pg_stat_statements` est créée dans la
-base applicative et dans la base `postgres`, que le receiver utilise pour les
-top queries. Le collecteur backend les indexe en mode OTel natif, comme tous
-ses flux (ADR-012), afin qu'ils arrivent dans `logs-postgresqlreceiver.otel-*`
-(namespace `supermarche_homologation`, ADR-019), le data stream lu par les
-dashboards du package `postgresql_otel`. Contrôle :
-`make postgresql-otel-dashboards-verify`.
+Le receiver PostgreSQL OTel du collecteur `otel-middleware` émet aussi les événements
+`db.server.query_sample` et `db.server.top_query`. L'extension `pg_stat_statements` est créée dans
+la base applicative et dans la base `postgres` (`gitops/supermarket/postgresql.yaml`), que le
+receiver utilise pour les top queries. Le collecteur backend les indexe en mode OTel natif, comme
+tous ses flux (ADR-012), afin qu'ils arrivent dans `logs-postgresqlreceiver.otel-*` (namespace
+`supermarche_homologation`, ADR-019), le data stream lu par les dashboards du package
+`postgresql_otel`. Contrôle : `make postgresql-otel-dashboards-verify`.
 
-Lors du premier provisionnement, les images Elastic sont pré-téléchargées sur
-`elk-01` avant le démarrage des unités Quadlet : un téléchargement sous systemd
-dépasse son délai de démarrage. Derrière un proxy TLS (`ZSCALER_CA_CERT`
-défini), le certificat racine est aussi monté dans Kibana
-(`NODE_EXTRA_CA_CERTS`) pour l'accès au registre des packages Fleet.
-
-Chaque VM Lima expose SSH sur un port local fixe, de `2251` à `2255`
+Chaque VM Lima expose SSH sur un port local fixe (`2253` à `2256`)
 (`ssh.localPort` dans `lima/<vm>.yaml`), repris par `ansible_port` dans
 `inventory/lima.yml`. Pour changer de plage, modifier les deux fichiers.
 
-La cible `make vms-up` démarre les cinq VM en parallèle, puis exécute un seul
-playbook Ansible sur les cinq hôtes. Les rôles restent parallèles par hôte et
-les variables sensibles viennent de l’environnement. Les données Kafka sont conservées dans le volume Podman
-`kafka-data`, monté sur le répertoire déclaré par `KAFKA_LOG_DIRS`.
+La cible `make vms-up` démarre les quatre VM en parallèle, puis exécute un seul playbook Ansible
+sur les quatre hôtes : rôles `common` et `retention` partout, `k3s` sur les trois clusters
+(`k3s_nodes` : `hub_nodes`, `apps_nodes`, `elk_nodes`), `otel_edge` sur l'Edge et `elastic_agent`
+sur `elastic_agent_nodes`. Les variables sensibles viennent de l'environnement.
 
-Le broker Kafka OTel protège les échanges de logs, métriques et traces avec
-SASL/PLAIN et des ACL. Chaque producteur, Edge ou agent EDOT du backend,
-publie avec son compte `otel_publisher_<hôte>`, dont le mot de passe est dérivé
-du secret racine `KAFKA_OTEL_PUBLISHER_PASSWORD` ; le compte `otel_consumer`
-est utilisé par le backend et la collecte des métriques Kafka pour consommer
-(voir « Isolation des plateformes dans Kafka »). Définir
-`KAFKA_OTEL_PUBLISHER_PASSWORD` et `KAFKA_OTEL_CONSUMER_PASSWORD` dans
-l'environnement avant `make vms-up`. Les mots de passe
-ne sont ni versionnés ni écrits dans les manifests Kubernetes. Les topics OTel
-sont créés par le rôle `otel_backend` ; le Job Kubernetes
-`otel-telemetry-topics` ne crée plus que les topics métier.
+Le Kafka OTel (Strimzi, `k3s-01`) protège les échanges de logs, métriques et traces avec
+SCRAM-SHA-512 et des ACL. L'Edge publie avec son compte `otel_publisher_otel_edge_01`, dont le mot
+de passe est dérivé du secret racine `KAFKA_OTEL_PUBLISHER_PASSWORD`, sur le listener externe
+`192.168.33.50:31092` (`otel_gateway_kafka_broker`) ; le compte `otel_consumer` sert au collecteur
+backend et à la collecte des métriques Kafka. Les comptes, les topics et les ACL sont déclarés dans
+`gitops/otel-pipeline` et créés par Crossplane (voir « Isolation des plateformes dans Kafka »).
 
-La cible `make vms-restart` redémarre séquentiellement les cinq VM
-(`supermarket-middleware-01`, `otel-backend-01`, `otel-edge-01`, `elk-01` et `k3s-01`) sans
-reprovisionnement. Une VM arrêtée est démarrée avec `--no-provision`. Le script
-affiche l’état Lima final pour permettre de vérifier que chaque VM est
-`Running`.
+La cible `make vms-restart` redémarre séquentiellement les quatre VM (`tools-01`, `k3s-01`,
+`elk-01`, `otel-edge-01`) sans reprovisionnement. Une VM arrêtée est démarrée avec
+`--no-provision`. Le script affiche l’état Lima final pour vérifier que chaque VM est `Running`.
 
-La cible `make metrics-chain-restart` redémarre uniquement la chaîne de
-transport des métriques, sans reprovisionnement : collecteur backend OTel,
-Kafka OTel, collecteur Edge, puis HAProxy OTLP. Elle vérifie les endpoints de
-santé des collecteurs, l’état du broker et sa disponibilité du quorum.
-
-Après une modification de la configuration du collecteur backend, utiliser
-`make elastic-agent-backend-provision` pour reprovisionner uniquement
-`otel-backend-01`. La cible attend les variables d’environnement habituelles
-du provisionnement et ne crée pas la VM si elle n’existe pas encore.
+La cible `make metrics-chain-restart` redémarre uniquement la chaîne de transport des métriques,
+sans reprovisionnement : Kafka OTel et collecteur backend de `k3s-01`, collecteur Edge, puis
+HAProxy OTLP. Elle attend que le Kafka et les collecteurs soient prêts.
 
 Les agents EDOT qui envoient leurs signaux vers Edge utilisent une clé Bearer
 distincte par VM, `OTEL_EDGE_KEY_<HOST>`, et les collecteurs Kubernetes leurs
@@ -176,44 +152,32 @@ avec `make credentials-generate`, puis le fichier peut être chargé avec
 Le script conserve les clés Edge et les mots de passe dans
 `.observability-credentials.env`, ignoré par Git et protégé par le mode `0600`.
 Le fichier contient `POSTGRESQL_PASSWORD`, `MONGODB_PASSWORD`,
-`ELASTIC_PASSWORD`, les mots de passe Kafka OTel et les six clés Edge. Un
+`ELASTIC_PASSWORD`, les mots de passe Kafka OTel et les clés Edge. Un
 fichier existant est complété des clés manquantes à chaque chargement. Pour
 remplacer tous les identifiants, utiliser
 `OBSERVABILITY_CREDENTIALS_ROTATE=1 source ./platform/elk/scripts/generate-otel-edge-keys.sh`.
 
-Pour supprimer les cinq VM et leurs disques locaux, exécuter la cible
-destructive `make vms-destroy`. Cette opération ne supprime pas les ressources
-Kubernetes ni les données persistées en dehors des VM.
+Pour supprimer les quatre VM et leurs disques locaux, exécuter la cible
+destructive `make vms-destroy`. Cette opération ne supprime pas le cache local des téléchargements.
 
-Après `make deploy`, la phase `deploy-post` reprovisionne le collecteur backend
-avec la clé API Elasticsearch courante et active le monitoring OpAMP des
-agents VM. Cette phase peut être rejouée seule avec `make deploy-post` après
-une rotation de clé ou une modification de configuration.
+Après `make deploy`, la phase `deploy-post` active le monitoring OpAMP des agents VM et sauvegarde
+les images des clusters k3s dans le cache local. Elle peut être rejouée seule avec
+`make deploy-post`.
 
-| VM | Collecteur | Acheminement |
+| VM | Contenu | Rôle dans la chaîne |
 | --- | --- | --- |
-| `supermarket-middleware-01` | MongoDB, Kafka métier, PostgreSQL | Middlewares du scénario applicatif |
-| `otel-backend-01` | Kafka OTel, backend OTel | Métriques, logs et traces locales → Kafka OTel local → Elasticsearch (OTel natif) |
-| `otel-edge-01` | Collecteur Edge (Contrib) ; HAProxy | OTLP Kubernetes et VM → Kafka |
-| `elk-01` | Elasticsearch, Kibana, Fleet Server | Stockage, consultation et enrôlement |
-| `k3s-01` | Serveur k3s | Cluster Kubernetes et workloads du lab |
-
-## Version du Kafka OTel
-
-Le broker Kafka OTel d'`otel-backend-01` utilise `apache/kafka:4.4.0`, monté
-en place depuis `3.9.2` sur le volume `otel-kafka-data`. Le
-`metadata.version` du cluster KRaft reste à `3.9-IV0` : il n'est pas finalisé,
-ce qui conserve un retour arrière possible vers `3.9.2` en restaurant l'image
-dans `roles/otel_backend/templates/kafka.container.j2`. Le Kafka métier de
-`supermarket-middleware-01` reste en `3.9.2`.
+| `tools-01` | k3s : Argo CD, Crossplane, cert-manager | Pilotage des clusters cibles et des back-ends |
+| `k3s-01` | k3s : services Java, PostgreSQL, MongoDB, Kafka métier et OTel, collecteurs | Applications, buffer Kafka OTel, collecteur backend → Elasticsearch |
+| `elk-01` | k3s + ECK : Elasticsearch, Kibana, Fleet Server | Stockage, consultation et enrôlement |
+| `otel-edge-01` | Collecteur Edge (EDOT) ; HAProxy | OTLP Kubernetes et VM → Kafka OTel |
 
 ## Routage par plateforme
 
 Une plateforme est un namespace Kubernetes ou un groupe de VM dans un
 environnement ([ADR-015](../docs/ADR-015-topics-par-plateforme-et-configuration-edge.md)).
 Chaque plateforme a trois topics `otel-{logs,metrics,traces}-<plateforme>-<environnement>`,
-créés par le rôle `otel_backend` depuis `otel_platforms`
-(`inventory/group_vars/all.yml`). Le dataset est celui du
+créés par Crossplane (API `OtelPlatform`) depuis le registre `gitops/otel-pipeline/platforms.yaml`,
+relu par Ansible dans `otel_platforms` (`inventory/group_vars/all.yml`). Le dataset est celui du
 receiver, ou `generic` pour les signaux OTLP des applications ; le namespace
 vaut `<plateforme>_<environnement>`
 ([ADR-019](../docs/ADR-019-namespace-par-plateforme.md)) ; la plateforme est
@@ -222,18 +186,17 @@ aussi le champ `platform.id`.
 | Plateforme | Contenu | Chemin |
 | --- | --- | --- |
 | `k3s` | Collecteurs `otel-kubernetes*` (namespace `elastic-stack`), VM `k3s-01` | Edge `otel-edge-01` |
-| `supermarche` | Namespace `h0tl-supermarche-app`, VM `supermarket-middleware-01` | Edge `otel-edge-01` |
+| `supermarche` | Namespace `h0tl-supermarche-app`, supervision de PostgreSQL, MongoDB et du Kafka métier (`otel-middleware`) | Edge `otel-edge-01` |
 | `demo` | Namespace `h0tl-demo-app`, API `demo-api` (`apps/demo-api`) | Edge `otel-edge-01` |
-| `elk` | VM `elk-01`, `otel-edge-01`, `otel-backend-01`, collecteurs Edge et backend | Edge pour `elk-01` et `otel-edge-01`, Kafka local pour `otel-backend-01` (ADR-005) |
+| `elk` | VM `elk-01` et `otel-edge-01`, collecteurs Edge et backend, supervision du Kafka OTel (`otel-middleware`) | Edge ; la télémétrie interne du collecteur backend va directement dans Elasticsearch |
 
 ### Déclaration par VM
 
 Chaque VM déclare dans ses `group_vars` sa plateforme, son environnement et
-l'Edge auquel elle envoie, ou `kafka-local` pour une publication directe
-dans le Kafka OTel local :
+l'Edge auquel elle envoie :
 
 ```yaml
-otel_platform: supermarche
+otel_platform: k3s
 otel_environment: homologation
 otel_edge: otel-edge-01
 ```
@@ -315,22 +278,19 @@ Les métriques de l'agent Java (runtime JVM, HTTP) suivent la règle commune
 et arrivent dans `metrics-<dataset>.otel-<plateforme>_<env>`.
 
 La télémétrie interne du collecteur backend ne passe pas par Kafka : sa
-ressource déclare `platform.id` et `deployment.environment.name` de la VM
-et suit le même processor. L'agent
-EDOT de `otel-backend-01` publie directement dans les topics de sa plateforme
-(`otel_edge: kafka-local`).
+ressource déclare `platform.id` (`elk`) et `deployment.environment.name` et
+suit le même processor.
 
 ### Ajouter une plateforme
 
-1. Ajouter le couple à `otel_platforms` dans
-   `inventory/group_vars/all.yml`, avec ses `publishers` :
-   l'Edge qui la sert, ou l'hôte dont l'agent publie en `kafka-local`.
+1. Ajouter un document `OtelPlatform` à `gitops/otel-pipeline/platforms.yaml`, avec ses
+   `publishers` (l'Edge qui la sert), committer et pousser.
 2. Faire déclarer la plateforme par ses clients : les trois variables
    `otel_*` pour des VM, `platform.id` et `deployment.environment.name` dans
    l’Application Crossplane d’une application Kubernetes (`spec.otel.platform`).
 3. `make otel-config-validate` rend et valide les configurations, et refuse
    une VM dont la plateforme est absente du registre ou de ses `publishers`.
-4. `make otel-backend-vm-provision` crée les topics, les comptes et les ACL,
+4. `make crossplane-platforms-apply` fait créer les topics et les ACL par Crossplane,
    puis `make otel-edge-vm-provision` applique la liste des plateformes
    servies et le provisionnement des agents leur déclaration.
 5. `make otel-kafka-acl-verify` contrôle l'isolation.
@@ -341,17 +301,16 @@ Chaque producteur a son compte `otel_publisher_<hôte>` et ne peut écrire que
 dans les topics des plateformes qui lui sont attribuées
 ([ADR-017](../docs/ADR-017-isolation-kafka-des-plateformes.md)). Le broker
 applique les ACL (`StandardAuthorizer`), ne crée aucun topic à la demande et
-authentifie tous ses listeners. `otel_admin`, seul super-utilisateur, sert au
-broker et aux outils d'administration (`otel-kafka-client.properties`).
+authentifie tous ses listeners (SCRAM-SHA-512). `otel-admin`, super-utilisateur
+(`KafkaUser` Strimzi), sert à provider-kafka et aux outils d'administration.
 
 | Compte | Droits |
 | --- | --- |
 | `otel_publisher_otel_edge_01` | Écriture sur les topics `k3s`, `supermarche`, `elk` et `demo` |
-| `otel_publisher_otel_backend_01` | Écriture sur les topics `elk` (agent EDOT kafka-local) |
 | `otel_consumer` | Lecture des topics `otel-*`, groupe `otel-backend`, description du cluster |
-| `otel_admin` | Super-utilisateur |
+| `otel-admin` | Super-utilisateur |
 
-Les mots de passe des producteurs et d'`otel_admin` sont dérivés de
+Les mots de passe des producteurs et d'`otel-admin` sont dérivés de
 `KAFKA_OTEL_PUBLISHER_PASSWORD`, qui reste sur le poste de l'opérateur.
 
 ```bash
@@ -366,7 +325,11 @@ d'une plateforme qui ne lui est pas attribuée. Aucun message n'est écrit.
 Vérification après publication :
 
 ```bash
-scripts/vm shell otel-backend-01 'sudo podman exec -e KAFKA_OPTS= observability-otel-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --command-config /opt/kafka/config/otel-kafka-client.properties --describe --group otel-backend'
+kubectl --kubeconfig .kube/k3s.config -n elastic-stack get kafkatopics,kafka  # état Strimzi
+make otel-kafka-acl-verify   # dépose aussi /tmp/otel-admin.properties dans le pod otel-kafka-dual-0
+kubectl --kubeconfig .kube/k3s.config -n elastic-stack exec otel-kafka-dual-0 -c kafka -- \
+  /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --command-config /tmp/otel-admin.properties --describe --group otel-backend
 ```
 
 Le topic doit apparaître avec un retard nul, puis
@@ -375,34 +338,27 @@ streams correspondants.
 
 ## Ordre de lecture
 
-1. `inventory/lima.yml` : hôtes ciblés, connexion SSH et capacités propres à chaque nœud ; les variables communes sont dans `inventory/group_vars/all.yml`.
+1. `inventory/lima.yml` : hôtes ciblés, groupes et connexion SSH ; les variables communes sont
+   dans `inventory/group_vars/all.yml`, celles de chaque groupe à côté.
 2. `site.yml` : orchestration des rôles idempotents par groupes d’inventaire.
 3. `roles/` : responsabilités séparées par type de VM et composants communs.
-4. `roles/*/templates/` : unités Podman Quadlet et configurations propres à chaque rôle.
-5. `status.yml` : diagnostic détaillé des services sur les VM.
-6. `make vms-up` prépare les VM et installe les agents EDOT. Après
-  l'initialisation d'Elastic, `make deploy` déploie le stack et les applications.
+4. `make vms-up` prépare les VM, k3s, l'Edge et les agents EDOT ; `make deploy` déploie ensuite,
+   depuis le hub, tout le contenu des clusters.
 
 ## Rôles
 
-Le playbook `site.yml` applique les rôles dans cet ordre, en utilisant les groupes de
-`inventory/lima.yml` comme structure de déploiement :
+Le playbook `site.yml` applique les rôles dans cet ordre :
 
-1. `common` : prérequis système, réseau, pare-feu, répertoires et
-   résolution des noms des VM ;
-2. `elk` sur `elk_nodes` : Elasticsearch, Kibana et Fleet Server ;
-3. `otel_backend` sur `otel_backend_nodes` : Kafka OTel et backend OTel ;
-4. `otel_edge` sur `otel_edge_nodes` : collecteur Edge et HAProxy ;
-5. `lab` sur `supermarket_middleware_nodes` : MongoDB, Kafka métier et PostgreSQL ;
-6. `k3s` sur `k3s_nodes` : serveur Kubernetes ;
-7. `elastic_agent` sur `elastic_agent_nodes` : téléchargement et configuration EDOT,
-   après le démarrage des services dont les agents dépendent.
+1. `common` et `retention` sur toutes les VM : prérequis système, réseau, chrony, résolution des
+   noms des VM, rétention des journaux ;
+2. `k3s` sur `k3s_nodes` : serveur k3s mono-nœud de `tools-01`, `k3s-01` et `elk-01`
+   (`node-ip` = IP privée du lab, `tls-san`, composants désactivés par `k3s_disable` :
+   Traefik et ServiceLB dans `k3s-01`, Traefik dans `elk-01`) ;
+3. `otel_edge` sur `otel_edge_nodes` : collecteur Edge et HAProxy ;
+4. `elastic_agent` sur `elastic_agent_nodes` : téléchargement et configuration EDOT.
 
-Les ports pare-feu, la clé d’accès Edge et les besoins spécifiques du middleware
-sont également déclarés par hôte dans l’inventaire. Les rôles utilisent les
-groupes Ansible comme source de vérité pour sélectionner le comportement propre
-à chaque VM ; les conditions restantes portent sur l’état observé de la machine
-et l’idempotence.
+Le rôle `otel_registry` ne provisionne rien : il valide le registre des plateformes et en déduit
+les topics et les comptes des producteurs (`render-otel-configs.yml`, `otel-kafka-acl-verify.yml`).
 
 `site.yml` est l'unique point d'entrée du provisionnement général. Chaque rôle
 possède ses propres templates afin que la tâche et la configuration déployée
@@ -421,62 +377,23 @@ réessayé cinq fois, avec 15 secondes entre les tentatives. Ces valeurs peuvent
 être adaptées ponctuellement avec `-e` si le réseau est particulièrement lent,
 par exemple `-e elastic_agent_download_retries=8 elastic_agent_download_delay=30`.
 
-Le rôle `elk` attend l'allocation des index primaires Elasticsearch avant de
-réinitialiser le token de service Kibana. Une réponse 200 sur `GET /` ne suffit
-pas toujours lors du premier démarrage : l'API des tokens écrit dans l'index
-`.security`, qui peut encore être indisponible et répondre 503. La suppression
-du token réessaie également les réponses 503 transitoires. Voir la
-[documentation Elastic sur les comptes de service](https://www.elastic.co/docs/deploy-manage/users-roles/cluster-or-deployment-auth/service-accounts)
-pour le stockage des tokens et la [documentation de l'API de santé du cluster](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-cluster-health)
-pour le mécanisme d'attente.
-
 Exécuter les playbooks depuis `architecture/`, avec l'inventaire `ansible/inventory/lima.yml`.
 
-Pour démarrer et provisionner les VM, utiliser :
-
 ```bash
-make vms-up
-make vm-status
+make vms-up        # crée et provisionne les quatre VM
+make vm-status     # état Lima, nœuds k3s, services de l'Edge
+make kubeconfigs   # .kube/tools.config, .kube/k3s.config, .kube/elk.config
+make deploy        # hub, clusters cibles, Elastic, applications
 ```
-
-Pour préparer le cluster k3s local, utiliser :
-
-```bash
-source ./platform/elk/scripts/load-credentials.sh
-make k3s-vm-up
-make k3s-kubeconfig
-```
-
-La première cible crée et provisionne `k3s-01`. La seconde exporte son
-kubeconfig dans `.kube/k3s.config`. Le déploiement Elastic, OTel et applicatif
-reste piloté par les cibles de déploiement dédiées.
 
 L'installation de k3s utilise le script de la release épinglée sur GitHub. Ce
 chemin évite la dépendance à `get.k3s.io` lorsque son service de distribution
 est indisponible. La version reste déclarée par `k3s_version` dans
 `inventory/group_vars/all.yml`.
 
-Après vérification des services, déployer le reste de l'architecture avec :
-
-```bash
-make deploy
-```
-
-L'ordre opérationnel est volontairement séquentiel : plateforme Elastic sur
-`elk-01`, backend OTel, Edge OTel, middleware du scénario, serveur k3s, puis
-collecteurs Kubernetes et applications. Les namespaces et secrets Kubernetes
-strictement nécessaires sont préparés en amont ; l'overlay Kubernetes complet
-n'est appliqué qu'après le backend et Edge.
-
-Lorsque `make deploy` réutilise une VM ELK déjà provisionnée, le mot de passe
-Elasticsearch persistant sur `elk-01` est utilisé comme source de vérité pour
-éviter un `401 Unauthorized` dû à un secret local différent. Le mot de passe
-n'est jamais affiché ni versionné.
-
-Les mots de passe restent dans `ELASTIC_PASSWORD`, `POSTGRESQL_PASSWORD` et
-`MONGODB_PASSWORD` hors du dépôt. Si `MONGODB_PASSWORD` n'est pas défini, le
-lab réutilise la valeur de `POSTGRESQL_PASSWORD`. Le déploiement complet passe par
-`make vms-up` puis `make deploy`.
+Les mots de passe restent dans `.observability-credentials.env`, hors du dépôt ; ceux des
+back-ends des clusters sont chiffrés par SOPS dans `gitops/<groupe>/secrets/`
+(`make secrets-encrypt`).
 
 ## Documentation externe
 
@@ -488,8 +405,10 @@ lab réutilise la valeur de `POSTGRESQL_PASSWORD`. Le déploiement complet passe
 
 Le rôle `retention`, inclus dans `site.yml`, configure journald et logrotate,
 puis active le nettoyage horaire des archives de plus de 24 h. Le playbook
-`retention.yml` applique uniquement ces règles et la configuration Kafka ;
-il redémarre le broker si son Quadlet change et réconcilie les topics existants.
+`retention.yml` applique uniquement ces règles ; la rétention des brokers Kafka est déclarée par
+leurs instances `KafkaCluster`, celle des topics par provider-kafka. `retention-verify.yml`
+contrôle les timers des VM puis, dans les pods Strimzi de `k3s-01`, la rétention effective des
+brokers et des topics.
 Utiliser `make retention-deploy` et `make retention-verify` depuis la racine.
 Les durées, plafonds, prérequis et limites sont déclarés dans les fichiers de
 configuration de rétention et vérifiables avec `make retention-verify`.
