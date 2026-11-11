@@ -22,6 +22,6 @@ configMapGenerator:
 replacements:
   - source: {kind: ConfigMap, name: otel-agent-config-source, fieldPath: data.agent}
     targets:
-      - select: {kind: Application}
+      - select: {group: apps.lab.io, kind: Application}
         fieldPaths: [spec.otel.agentConfig]
         options: {create: true}
