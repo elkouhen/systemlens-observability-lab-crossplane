@@ -340,29 +340,65 @@ Contrainte : le Mac a 16 Go. Mesurer la mémoire réelle à chaque étape (`top`
   Résultat (11 novembre 2026, lab déployé, `free -m` dans chaque VM, colonne « used ») :
   supermarket-middleware-01 1 067 Mio / 3 Gio, otel-backend-01 1 157 Mio / 3 Gio, otel-edge-01
   590 Mio / 2 Gio, elk-01 3 166 Mio / 6 Gio, k3s-01 4 264 Mio / 8 Gio : 10,0 Gio utilisés pour
-  22 Gio alloués. Côté Mac (16 Gio) : 15 Gio occupés dont 8 Gio compressés (`top`), la VM Docker
-  Desktop (10 Gio) tournant en parallèle ; `memory_pressure` : 34 % libres.
-- [ ] H1 Hub `tools-01` : VM Lima, k3s, Argo CD, Crossplane, cert-manager, clé age ; k3s-01 et
+  22 Gio alloués. Côté Mac (16 Gio) : 15 Gio occupés dont 8 Gio compressés (`top`), la VM Colima
+  (Docker, 10 Gio) tournant en parallèle ; `memory_pressure` : 34 % libres.
+- [x] H1 Hub `tools-01` : VM Lima, k3s, Argo CD, Crossplane, cert-manager, clé age ; k3s-01 et
   elk-01 enregistrés comme clusters Argo CD ; provider-kubernetes (une ProviderConfig par cluster
   cible) pour composer des objets dans les clusters cibles.
-- [ ] H2 Opérateurs de données dans k3s-01 (Helm par Argo CD) : CloudNativePG, Strimzi, opérateur
+  Résultat : hub `tools-01` (192.168.33.60, k3s, Argo CD 3.5.7 avec CMP ksops, Crossplane 2.4.3,
+  provider-kubernetes 1.4.1, cert-manager) ; `make clusters-register` crée les Secrets de cluster
+  Argo CD et les `ClusterProviderConfig` `k3s-01`/`elk-01` (identifiants régénérés à chaque
+  installation, non versionnés, ADR-021). Repo-server sur le bundle CA du nœud (proxy TLS).
+  Mémoire : 4 Gio saturés sans plafond (DNS du hub en délai) ; `GOMEMLIMIT=1GiB` sur le serveur k3s du hub,
+  VM de 4 Gio, ~2,7 Gio utilisés.
+- [x] H2 Opérateurs de données dans k3s-01 (Helm par Argo CD) : CloudNativePG, Strimzi, opérateur
   MongoDB (images arm64 requises). API Crossplane du hub : PostgreSQLInstance, MongoDBInstance,
   KafkaCluster ; accès du hub et de l'Edge par NodePort sur 192.168.33.50.
-- [ ] H3 Groupe supermarket : bases et Kafka métier dans k3s-01, supervision par les collecteurs OTel
+  Résultat : charts Argo CD CloudNativePG 0.29.1 (1.30.1, PostgreSQL 17.11), Strimzi 1.3.1 (Kafka
+  4.3.1, KRaft), MongoDB Controllers for Kubernetes 1.15.0 (8.0.26), ECK 3.5.0, images arm64
+  vérifiées ; API `PostgreSQLInstance`, `MongoDBInstance`, `KafkaCluster` (data.lab.io) composées
+  par provider-kubernetes ; NodePort 30432, 30017, 31092, 31192. k3s-01 passé à 4 vCPU (sondes en
+  échec à 2 vCPU).
+- [x] H3 Groupe supermarket : bases et Kafka métier dans k3s-01, supervision par les collecteurs OTel
   du cluster (receivers postgresql, mongodb, kafkametrics) en gardant les data streams des dashboards.
-- [ ] H4 Kafka OTel et collecteur backend dans k3s-01 ; l'Edge publie par NodePort (SCRAM).
-- [ ] H5 elk-01 en k3s + ECK : API ObservabilityStack (Elasticsearch, Kibana, Fleet Server), mêmes
+  Résultat : instances du supermarché dans `gitops/supermarket/databases.yaml` (provider-sql et
+  Terraform MongoDB inchangés, par NodePort) ; collecteur `otel-middleware` (receivers postgresql,
+  mongodb, kafkametrics) : `make dashboards-verify` et `make postgresql-otel-dashboards-verify` OK.
+- [x] H4 Kafka OTel et collecteur backend dans k3s-01 ; l'Edge publie par NodePort (SCRAM).
+  Résultat : Kafka OTel `otel-kafka` (SCRAM, ACL de provider-kafka) et collecteur backend dans
+  k3s-01. Autorisation déclarée `custom` (StandardAuthorizer, `supportsAdminApi: false`) : en
+  `simple`, l'opérateur d'utilisateurs Strimzi supprimait les 29 ACL toutes les 2 minutes.
+  `make otel-kafka-acl-verify` OK, ACL stables.
+- [x] H5 elk-01 en k3s + ECK : API ObservabilityStack (Elasticsearch, Kibana, Fleet Server), mêmes
   points d'accès 192.168.33.40:9200/5601/8220 ; configuration Terraform/HTTP actuelle conservée.
-- [ ] H6 Suppression de supermarket-middleware-01 et otel-backend-01 (Lima, inventaire, rôles,
+  Résultat : API `ObservabilityStack` (observability.lab.io) : Elasticsearch, Kibana, Fleet Server
+  9.5.4 sous ECK, HTTP, Services LoadBalancer sur 192.168.33.40:9200/5601/8220 ; Terraform et
+  provider-http inchangés. elk-01 passé à 4 vCPU et `make crossplane-fleet-wait` répare une policy
+  Fleet orpheline (HTTP 409 après un apply interrompu).
+- [x] H6 Suppression de supermarket-middleware-01 et otel-backend-01 (Lima, inventaire, rôles,
   Makefile, docs, ADR) ; reconstruction complète, 7 contrôles de télémétrie, mesure mémoire.
-- [ ] H7 Images applicatives construites par GitHub et publiées sur GHCR
+  Résultat : VM, rôles, inventaire, scripts et docs supprimés ou mis à jour (ADR-021, ADR-004/005
+  remplacées). Reconstruction complète `make vms-destroy && make vms-up && make deploy` en 1227 s,
+  19 Application Argo CD Synced/Healthy, les 8 contrôles OK.
+- [x] H7 Images applicatives construites par GitHub et publiées sur GHCR
   (`.github/workflows/build-images.yml`, arm64 natif sur `ubuntu-24.04-arm`, tags de Git et
   `sha-<court>`) ; l'API `Application` tire `ghcr.io/elkouhen/systemlens-observability-lab-crossplane/<image>` ;
   `make deploy` attend les images (`make images-wait`) au lieu de les construire : Colima n'est
   plus nécessaire au lab. À faire avant la reconstruction finale.
-- [ ] H8 Collecteur Edge dans k3s-01 (Deployment `otel-edge`, Service pour le cluster, ports du nœud
+  Résultat : workflow `build-images.yml` (mvn verify, 4 images arm64 sur ubuntu-24.04-arm, tags Git
+  et `sha-<court>`), images publiques sur GHCR (tirage anonyme vérifié par `make images-wait`) ;
+  `make deploy` ne construit plus rien. Colima : 10 Gio d'empreinte sur le Mac, inutile au lab
+  (`colima stop` documenté).
+- [x] H8 Collecteur Edge dans k3s-01 (Deployment `otel-edge`, Service pour le cluster, ports du nœud
   4317/4318 pour les agents des VM et le poste) ; suppression de la VM `otel-edge-01`, de HAProxy
   et du rôle `otel_edge` : 3 VM (tools-01, k3s-01, elk-01). Identité Kafka et ACL inchangées.
+  Résultat : Deployment `otel-edge` (réseau de l'hôte : Lima ne redirige pas les hostPort) et
+  Service `otel-edge`, jetons Bearer en Secret SOPS recopié par Crossplane, liste des plateformes
+  contrôlée contre `platforms.yaml` par `make otel-config-validate` ; VM `otel-edge-01`, HAProxy,
+  rôle `otel_edge` supprimés ; 127.0.0.1:4318 redirigé depuis k3s-01 (HTTP 401 sans clé, 200 avec).
+  Économie : 1,5 Gio alloués. Mémoire finale (`free -m`, used) : tools-01 2,7 Gio / 4 Gio, k3s-01
+  4,9 Gio / 6 Gio, elk-01 3,6 Gio / 4,5 Gio, soit 14,5 Gio alloués contre 22 Gio à H0 ; Mac :
+  memory_pressure 34 % libres (comme à H0), Colima toujours démarré (10 Gio d'empreinte).
 
 ## Lot 4 : provider Elastic natif (écarté)
 

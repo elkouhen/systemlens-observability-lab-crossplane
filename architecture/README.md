@@ -86,11 +86,12 @@ Mesures du lot 8 (`free -m` dans chaque VM, lab déployé et stable) :
 | VM | Allouée | Utilisée | Ce qui la remplit |
 |---|---|---|---|
 | `tools-01` | 4 Gio | ~2,7 Gio | serveur k3s (plafonné par `GOMEMLIMIT=1GiB`), Argo CD, Crossplane et 5 providers |
-| `k3s-01` | 6 Gio | ~5 Gio | 3 services Java + demo-api (512 Mio max), 2 Kafka (tas 256 Mio), PostgreSQL, MongoDB, Collecteur Edge et collecteurs |
-| `elk-01` | 4,5 Gio | ~3,7 Gio | Elasticsearch (tas 768 Mio, limite 1,5 Gio), Kibana (1 Gio), Fleet Server (512 Mio) |
+| `k3s-01` | 6 Gio | ~4,9 Gio | 3 services Java + demo-api (512 Mio max), 2 Kafka (tas 256 Mio), PostgreSQL, MongoDB, Collecteur Edge et collecteurs |
+| `elk-01` | 4,5 Gio | ~3,6 Gio | Elasticsearch (tas 768 Mio, limite 1,5 Gio), Kibana (1 Gio), Fleet Server (512 Mio) |
 
-Soit 14,5 Gio alloués (22 Gio avant le lot 8 ; la VM `otel-edge-01`, 1,5 Gio, est supprimée). Les limites de chaque composant sont déclarées dans
-Git : valeurs par défaut des API Crossplane (`gitops/crossplane/apis/*/definition.yaml`), que
+Soit 14,5 Gio alloués, contre 22 Gio avant le lot 8 (la VM `otel-edge-01`, 1,5 Gio, est
+supprimée). `k3s-01` et `elk-01` ont 4 vCPU, le hub 2. Les limites de chaque composant sont
+déclarées dans Git : valeurs par défaut des API Crossplane (`gitops/crossplane/apis/*/definition.yaml`), que
 chaque instance peut surcharger, valeurs Helm des opérateurs (`gitops/operators/`) et manifests des
 collecteurs (`gitops/otel-pipeline/k3s-01/`).
 
