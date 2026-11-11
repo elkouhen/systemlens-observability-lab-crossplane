@@ -892,8 +892,11 @@ crossplane-postgresql-wait: ## Attendre la configuration PostgreSQL
 crossplane-elastic-wait: ## Attendre Elasticsearch déclaré (ILM, pipelines, clé API OTel)
 	@$(call CROSSPLANE_WAIT_READY,-n elastic-stack,workspaces.tf.m.upbound.io/elasticsearch)
 
-crossplane-fleet-wait: ## Attendre les packages et policies Fleet déclarés
-	@$(call CROSSPLANE_WAIT_READY,-n crossplane-system,workspaces.tf.m.upbound.io/fleet)
+crossplane-fleet-wait: ## Attendre les packages et policies Fleet déclarés (répare une policy orpheline, HTTP 409)
+	@for i in $$(seq 1 180); do $(KUBECTL) -n crossplane-system get workspaces.tf.m.upbound.io/fleet >/dev/null 2>&1 && break; sleep 5; done
+	@set -euo pipefail; kibana_password="$${KIBANA_PASSWORD:-$${ELASTICSEARCH_PASSWORD:-$$( $(KUBECTL) -n $(K8S_NAMESPACE) get secret elasticsearch-es-elastic-user -o jsonpath='{.data.elastic}' 2>/dev/null | base64 --decode )}}"; \
+	 KUBECTL='$(KUBECTL)' KIBANA_URL='$(KIBANA_URL)' KIBANA_CURL_RESOLVE='$(KIBANA_CURL_RESOLVE)' KIBANA_PASSWORD="$$kibana_password" \
+	 ./$(ARCH_ROOT)/platform/elk/scripts/fleet-workspace-wait.sh
 
 crossplane-kibana-wait: ## Attendre les objets Kibana déclarés (data view, règles d'alerte, dashboards)
 	@$(call CROSSPLANE_WAIT_READY,-n crossplane-system,workspaces.tf.m.upbound.io/kibana-saved-objects workspaces.tf.m.upbound.io/kibana-alerting)

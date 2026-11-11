@@ -2,6 +2,9 @@
 # le hub tools-01. Les Services LoadBalancer (ServiceLB de k3s) gardent les points d'accès
 # 192.168.33.40:9200, 5601 et 8220.
 base: ./base.yaml
+# 4 vCPU : à 2 vCPU, Kibana sature pendant l'installation des packages Fleet (sondes en échec,
+# Service sans endpoint, apply Terraform interrompu).
+cpus: 4
 # 4,5 Gio pour environ 3,7 Gio utilisés (Elasticsearch plafonné à 1,5 Gio, Kibana à 1 Gio).
 memory: 4.5GiB
 disk: 30GiB
