@@ -28,10 +28,14 @@ K8S_NAMESPACE ?= elastic-stack
 KUBECTL_K3S = $(KUBECTL) --kubeconfig $(K3S_KUBECONFIG)
 KUBECTL_ELK = $(KUBECTL) --kubeconfig $(ELK_KUBECONFIG)
 APP_NAMESPACE ?= h0tl-supermarche-app
-APP_IMAGE_TAG ?= 1.1.6
+# Images applicatives construites et publiées par GitHub (.github/workflows/build-images.yml) ;
+# les tags sont ceux déclarés dans Git (gitops/<groupe>/application*.yaml), seule source de vérité.
+IMAGES_WAIT_ATTEMPTS ?= 90
+IMAGE_REGISTRY ?= ghcr.io/elkouhen/systemlens-observability-lab-crossplane
+APP_IMAGE_TAG ?= $(shell sed -n 's/.*image: {name: order-service, tag: \([^}]*\)}.*/\1/p' gitops/supermarket/applications.yaml)
 # API de démonstration hello world (apps/demo-api), plateforme demo.
 DEMO_API_NAMESPACE ?= h0tl-demo-app
-DEMO_API_IMAGE_TAG ?= 1.1.1
+DEMO_API_IMAGE_TAG ?= $(shell sed -n 's/.*image: {name: demo-api, tag: \([^}]*\)}.*/\1/p' gitops/demo-api/application.yaml)
 DEMO_API_PATH ?= /api/hello?name=lab
 OTEL_JAVA_AGENT_VERSION ?= 2.28.1
 ORDER_PRODUCT_ID ?= PASTA-500G
@@ -84,7 +88,7 @@ HELP_TARGETS := help architecture-status credentials-show credentials-generate c
 	crossplane-install crossplane-ca-apply crossplane-apply crossplane-status crossplane-platforms-apply \
 	kubeconfigs clusters-register operators-wait data-services-wait elastic-stack-wait
 
-.PHONY: demo-api-test demo-api-build demo-api-import demo-api-deploy demo-api-call demo-api-jvm-metrics-verify demo-api-logs-follow help architecture-status c4-pages-build credentials-show credentials-generate cluster-info platform-status kubernetes-status java-version-verify apps-build apps-test command-center-build images-import kubernetes-validate ansible-validate otel-config-validate otel-routing-verify otel-legacy-datastreams-delete elastic-version-validate slides elastic-stack-deploy otel-elasticsearch-credentials-apply \
+.PHONY: demo-api-test demo-api-build demo-api-import demo-api-deploy demo-api-call demo-api-jvm-metrics-verify demo-api-logs-follow help architecture-status c4-pages-build credentials-show credentials-generate cluster-info platform-status kubernetes-status java-version-verify apps-build apps-test command-center-build images-import images-wait kubernetes-validate ansible-validate otel-config-validate otel-routing-verify otel-legacy-datastreams-delete elastic-version-validate slides elastic-stack-deploy otel-elasticsearch-credentials-apply \
 	elk-deploy kibana-fleet-config-deploy fleet-assets-deploy fleet-prerequisites fleet-registry-ready fleet-server-wait fleet-opamp-enable apm-data-view-deploy business-dashboard-deploy business-dashboard-replace apps-deploy fleet-sync \
 	observability-policies-validate observability-policies-deploy time-sync-verify \
 	mongodb-workload otel-gateway-vm-status otel-backend-status collectors-restart \
@@ -166,15 +170,15 @@ time-sync-verify: ## Vérifier la synchronisation chrony des quatre VM
 
 ##@ Construction et préparation locale
 
-apps-build: ## Construire les images applicatives avec l'agent Java OpenTelemetry
+apps-build: ## Optionnel : construire localement les images applicatives (sinon GitHub les publie sur GHCR)
 	@zscaler_ca_b64=""; \
 	if [ -n "$(ZSCALER_CA_CERT)" ]; then \
 	  test -f "$(ZSCALER_CA_CERT)" || { echo "Certificat Zscaler introuvable : $(ZSCALER_CA_CERT)" >&2; exit 1; }; \
 	  zscaler_ca_b64="$$(base64 < "$(ZSCALER_CA_CERT)" | tr -d '\n')"; \
 	fi; \
-	docker build --build-arg ZSCALER_CA_CERT_B64="$$zscaler_ca_b64" --build-arg OTEL_JAVA_AGENT_VERSION=$(OTEL_JAVA_AGENT_VERSION) --target order-service -t order-service:$(APP_IMAGE_TAG) ../apps/supermarket-demo && \
-	docker build --build-arg ZSCALER_CA_CERT_B64="$$zscaler_ca_b64" --build-arg OTEL_JAVA_AGENT_VERSION=$(OTEL_JAVA_AGENT_VERSION) --target inventory-service -t inventory-service:$(APP_IMAGE_TAG) ../apps/supermarket-demo && \
-	docker build --build-arg ZSCALER_CA_CERT_B64="$$zscaler_ca_b64" --build-arg OTEL_JAVA_AGENT_VERSION=$(OTEL_JAVA_AGENT_VERSION) --target restock-service -t restock-service:$(APP_IMAGE_TAG) ../apps/supermarket-demo
+	docker build --build-arg ZSCALER_CA_CERT_B64="$$zscaler_ca_b64" --build-arg OTEL_JAVA_AGENT_VERSION=$(OTEL_JAVA_AGENT_VERSION) --target order-service -t $(IMAGE_REGISTRY)/order-service:$(APP_IMAGE_TAG) ../apps/supermarket-demo && \
+	docker build --build-arg ZSCALER_CA_CERT_B64="$$zscaler_ca_b64" --build-arg OTEL_JAVA_AGENT_VERSION=$(OTEL_JAVA_AGENT_VERSION) --target inventory-service -t $(IMAGE_REGISTRY)/inventory-service:$(APP_IMAGE_TAG) ../apps/supermarket-demo && \
+	docker build --build-arg ZSCALER_CA_CERT_B64="$$zscaler_ca_b64" --build-arg OTEL_JAVA_AGENT_VERSION=$(OTEL_JAVA_AGENT_VERSION) --target restock-service -t $(IMAGE_REGISTRY)/restock-service:$(APP_IMAGE_TAG) ../apps/supermarket-demo
 
 java-version-verify: ## Vérifier que Maven utilise Java 21
 	@major="$$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n 1)"; \
@@ -189,16 +193,16 @@ apps-test: java-version-verify ## Exécuter les tests unitaires et d'intégratio
 demo-api-test: java-version-verify ## Exécuter les tests Maven de demo-api
 	@mvn --batch-mode verify -f ../apps/demo-api/pom.xml
 
-demo-api-build: ## Construire l'image demo-api avec l'agent Java OpenTelemetry
+demo-api-build: ## Optionnel : construire localement l'image demo-api (sinon GitHub la publie sur GHCR)
 	@zscaler_ca_b64=""; \
 	if [ -n "$(ZSCALER_CA_CERT)" ]; then \
 	  test -f "$(ZSCALER_CA_CERT)" || { echo "Certificat Zscaler introuvable : $(ZSCALER_CA_CERT)" >&2; exit 1; }; \
 	  zscaler_ca_b64="$$(base64 < "$(ZSCALER_CA_CERT)" | tr -d '\n')"; \
 	fi; \
-	docker build --build-arg ZSCALER_CA_CERT_B64="$$zscaler_ca_b64" --build-arg OTEL_JAVA_AGENT_VERSION=$(OTEL_JAVA_AGENT_VERSION) --target demo-api -t demo-api:$(DEMO_API_IMAGE_TAG) ../apps/demo-api
+	docker build --build-arg ZSCALER_CA_CERT_B64="$$zscaler_ca_b64" --build-arg OTEL_JAVA_AGENT_VERSION=$(OTEL_JAVA_AGENT_VERSION) --target demo-api -t $(IMAGE_REGISTRY)/demo-api:$(DEMO_API_IMAGE_TAG) ../apps/demo-api
 
-demo-api-import: ## Importer l'image demo-api dans k3s
-	@docker save demo-api:$(DEMO_API_IMAGE_TAG) | $(VM) shell $(K3S_VM_NAME) 'sudo /usr/local/bin/k3s ctr images import -'
+demo-api-import: ## Optionnel : importer dans k3s l'image demo-api construite localement
+	@docker save $(IMAGE_REGISTRY)/demo-api:$(DEMO_API_IMAGE_TAG) | $(VM) shell $(K3S_VM_NAME) 'sudo /usr/local/bin/k3s ctr images import -'
 
 demo-api-deploy: crossplane-secrets-wait ## Déployer demo-api dans h0tl-demo-app et attendre son rollout
 	@# Application Crossplane synchronisée par Argo CD (architecture/gitops/demo-api) ; le tag déployé
@@ -239,8 +243,24 @@ elastic-version-validate: ## Vérifier l'alignement des versions Elastic déclar
 	test "$$versions" = "$$expected" || { echo "Versions Elastic incohérentes (attendu $$expected) : $$versions" >&2; exit 1; }; \
 	echo "Versions Elastic alignées sur $$expected"
 
-images-import: ## Importer les images applicatives dans k3s
-	@docker save order-service:$(APP_IMAGE_TAG) inventory-service:$(APP_IMAGE_TAG) restock-service:$(APP_IMAGE_TAG) | $(VM) shell $(K3S_VM_NAME) 'sudo /usr/local/bin/k3s ctr images import -'
+images-wait: ## Attendre que GHCR publie les images aux tags déclarés dans Git (accès anonyme)
+	@set -euo pipefail; repo='$(IMAGE_REGISTRY)'; repo="$${repo#ghcr.io/}"; \
+	accept='application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json'; \
+	for ref in order-service:$(APP_IMAGE_TAG) inventory-service:$(APP_IMAGE_TAG) restock-service:$(APP_IMAGE_TAG) demo-api:$(DEMO_API_IMAGE_TAG); do \
+	  name="$${ref%%:*}"; tag="$${ref#*:}"; test -n "$$tag" || { echo "Tag introuvable pour $$name dans gitops/" >&2; exit 1; }; \
+	  for i in $$(seq 1 $(IMAGES_WAIT_ATTEMPTS)); do \
+	    token="$$(curl -fsS "https://ghcr.io/token?scope=repository:$$repo/$$name:pull" 2>/dev/null | jq -r .token || true)"; \
+	    code="$$(curl -s -o /dev/null -w '%{http_code}' -I -H "Authorization: Bearer $$token" -H "Accept: $$accept" "https://ghcr.io/v2/$$repo/$$name/manifests/$$tag" || true)"; \
+	    test "$$code" = 200 && break; \
+	    test "$$i" = 1 && echo "Attente de $(IMAGE_REGISTRY)/$$ref sur GHCR (HTTP $$code, workflow build-images.yml)"; \
+	    test "$$i" = $(IMAGES_WAIT_ATTEMPTS) && { echo "Image absente ou privée : $(IMAGE_REGISTRY)/$$ref (HTTP $$code)" >&2; exit 1; }; \
+	    sleep 20; \
+	  done; \
+	  echo "Image publiée : $(IMAGE_REGISTRY)/$$ref"; \
+	done
+
+images-import: ## Optionnel : importer dans k3s les images construites localement
+	@docker save $(IMAGE_REGISTRY)/order-service:$(APP_IMAGE_TAG) $(IMAGE_REGISTRY)/inventory-service:$(APP_IMAGE_TAG) $(IMAGE_REGISTRY)/restock-service:$(APP_IMAGE_TAG) | $(VM) shell $(K3S_VM_NAME) 'sudo /usr/local/bin/k3s ctr images import -'
 
 k3d-ca-import: ## Faire confiance au certificat Zscaler dans les nœuds k3d (requiert ZSCALER_CA_CERT, puis redémarrer le cluster)
 	@test -n "$(ZSCALER_CA_CERT)" || { echo "Définir ZSCALER_CA_CERT=chemin/vers/cert.crt" >&2; exit 1; }
@@ -477,10 +497,7 @@ deploy:
 	source '$(OBSERVABILITY_CREDENTIALS_FILE)'; \
 	export ELASTIC_PASSWORD="$${ELASTIC_PASSWORD:?Set ELASTIC_PASSWORD outside Git}"; \
 	$(MAKE) kubeconfigs; \
-	$(MAKE) apps-build; \
-	$(MAKE) images-import; \
-	$(MAKE) demo-api-build; \
-	$(MAKE) demo-api-import; \
+	$(MAKE) images-wait; \
 	$(MAKE) elk-deploy; \
 	$(MAKE) apps-deploy; \
 	$(MAKE) demo-api-deploy; \

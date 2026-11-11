@@ -355,6 +355,11 @@ Contrainte : le Mac a 16 Go. Mesurer la mémoire réelle à chaque étape (`top`
   points d'accès 192.168.33.40:9200/5601/8220 ; configuration Terraform/HTTP actuelle conservée.
 - [ ] H6 Suppression de supermarket-middleware-01 et otel-backend-01 (Lima, inventaire, rôles,
   Makefile, docs, ADR) ; reconstruction complète, 7 contrôles de télémétrie, mesure mémoire.
+- [ ] H7 Images applicatives construites par GitHub et publiées sur GHCR
+  (`.github/workflows/build-images.yml`, arm64 natif sur `ubuntu-24.04-arm`, tags de Git et
+  `sha-<court>`) ; l'API `Application` tire `ghcr.io/elkouhen/systemlens-observability-lab-crossplane/<image>` ;
+  `make deploy` attend les images (`make images-wait`) au lieu de les construire : Colima n'est
+  plus nécessaire au lab. À faire avant la reconstruction finale.
 
 ## Lot 4 : provider Elastic natif (écarté)
 

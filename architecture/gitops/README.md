@@ -129,7 +129,7 @@ apiVersion: apps.lab.io/v1alpha1
 kind: Application
 metadata: {name: order-service, namespace: h0tl-supermarche-app}
 spec:
-  image: {name: order-service, tag: 1.1.6}
+  image: {name: order-service, tag: 1.1.6}   # registry : GHCR du dépôt par défaut
   port: 3000
   probePath: /api/health          # sans valeur : sondes TCP
   # cluster: k3s-01               # cluster cible, par défaut
@@ -143,9 +143,11 @@ spec:
 Le `kustomization.yaml` du groupe recopie `otel-agent.yaml` (relu par `make trace-context-verify`)
 dans `spec.otel.agentConfig`. La Composition produit, dans le cluster cible, `<application>-otel-agent-config`,
 le Deployment et le Service ; l'empreinte de la configuration de l'agent, posée sur le gabarit des
-pods, les redémarre quand elle change. Le tag déployé est celui du dépôt : `APP_IMAGE_TAG` et
-`DEMO_API_IMAGE_TAG`, utilisés pour construire et importer les images dans k3s-01, doivent lui
-correspondre.
+pods, les redémarre quand elle change. L'image est
+`<registry>/<name>:<tag>`, `registry` valant par défaut
+`ghcr.io/elkouhen/systemlens-observability-lab-crossplane`, où le workflow GitHub
+`build-images.yml` publie les images au tag déclaré ici. Livrer une version : changer le code, changer
+le tag ici, pousser ; GitHub construit, Argo CD déploie (voir `apps/README.md`).
 
 ## Élagage et caches
 
@@ -166,7 +168,7 @@ provider-terraform garde ses providers Terraform (`TF_PLUGIN_CACHE_DIR`) et Cros
 | `make secrets-encrypt` | Les identifiants sont générés localement : il faut rechiffrer puis committer quand ils changent. |
 | Migration ILM des indices existants (`make ilm-deploy`), suppression des data streams obsolètes | Opérations ponctuelles sur des données, pas un état cible. |
 | Doublons Fleet Server et clé d'enrôlement (`bootstrap-fleet-policies.sh`) | Opérations d'exécution sur des agents enrôlés. |
-| Construction et import des images (`make apps-build`, `images-import`) | Pas d'état à réconcilier ; l'`Application` fixe le tag à déployer. |
+| Construction des images (workflow GitHub `build-images.yml`, `make images-wait`) | Hors cluster : GitHub publie sur GHCR le tag fixé par l'`Application`. |
 
 Les comptes d'amorçage des back-ends sont désormais déclarés : `postgres` (superutilisateur de la
 `PostgreSQLInstance`), `crossplane_admin` (compte de la `MongoDBInstance`), `otel-admin` (`KafkaUser`

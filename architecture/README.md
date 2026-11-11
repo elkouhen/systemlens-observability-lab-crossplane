@@ -100,8 +100,7 @@ make ci-run
 Pour construire et déployer :
 
 ```bash
-make apps-build
-make apps-test
+make apps-test               # les images sont construites par GitHub (build-images.yml)
 make vms-start                # crée et provisionne les 4 VM (Ansible)
 make architecture-deploy      # make deploy : hub, clusters cibles, Elastic, applications
 ```

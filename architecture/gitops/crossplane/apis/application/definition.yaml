@@ -32,6 +32,12 @@ spec:
                   type: object
                   required: [name, tag]
                   properties:
+                    registry:
+                      type: string
+                      default: ghcr.io/elkouhen/systemlens-observability-lab-crossplane
+                      description: >-
+                        Registre de l'image, alimenté par le workflow GitHub build-images.yml.
+                        Vide : image locale importée dans k3s (make apps-build images-import).
                     name: {type: string}
                     tag: {type: string}
                 cluster:

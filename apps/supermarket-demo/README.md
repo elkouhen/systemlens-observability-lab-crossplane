@@ -45,9 +45,10 @@ le réassort asynchrone. Le Dockerfile produit une image pour chacun.
 5. Le code des trois modules pour le flux métier (`order-service/.../order`,
    `inventory-service/.../inventory`, `restock-service/.../restock`).
 
-Construire les images applicatives avec `make apps-build`, puis déployer uniquement
-l'application avec `make apps-deploy`. Cette cible applique les Application de
-`architecture/gitops/supermarket/applications.yaml` avec le tag `APP_IMAGE_TAG`.
+Les images sont construites et publiées sur GHCR par le workflow GitHub `build-images.yml`
+(voir [la livraison](../README.md#livraison-dune-nouvelle-version)) ; `make apps-deploy` attend
+ensuite les Application de `architecture/gitops/supermarket/applications.yaml`, synchronisées par
+Argo CD avec le tag déclaré dans ce fichier.
 
 Pour déclencher une commande de recette via le service Kubernetes, exécuter
 `make order-service-command`. La cible crée un pod `curl` éphémère, appelle
@@ -86,14 +87,15 @@ désérialisés avec le contrat généré actuel, sans suppression du topic.
 
 Le tag des images Docker (`order-service:1.1.6` / `inventory-service:1.1.6` /
 `restock-service:1.1.6`,
-fixé dans `Makefile` et le manifest Kubernetes de `architecture/`) est géré indépendamment
+fixé dans `architecture/gitops/supermarket/applications.yaml`, lu par le `Makefile` et par le
+workflow GitHub) est géré indépendamment
 de `<version>` dans les `pom.xml` (actuellement `1.0.0`, partagée par les trois
 modules Maven). Le tag Docker identifie une itération de l'image de
 démonstration ; la version Maven identifie une itération du code Java. Un tag
-Docker est immuable : choisir un nouveau `APP_IMAGE_TAG` à chaque image. Par
-exemple, `make apps-build APP_IMAGE_TAG=1.1.6`, puis
-`make images-import apps-deploy APP_IMAGE_TAG=1.1.6`. La cible de déploiement
-met explicitement à jour l'image des Deployments et attend leur rollout.
+Docker est immuable : choisir un nouveau tag à chaque image, l'inscrire dans
+`applications.yaml`, committer et pousser ; GitHub publie l'image, Argo CD la déploie.
+Pour essayer une image sans la publier : `make apps-build images-import` (image locale
+étiquetée avec le nom GHCR, préférée par `imagePullPolicy: IfNotPresent`).
 
 ## Graphe d'architecture Java
 

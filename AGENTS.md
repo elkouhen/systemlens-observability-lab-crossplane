@@ -169,9 +169,10 @@ commandes de validation.
   ```
 
 - Les tags Docker `order-service:1.1.6`, `inventory-service:1.1.6` et
-  `restock-service:1.1.6` sont indépendants de la version Maven. Si un tag change, mettre à jour ensemble le
-  `Makefile`, le Dockerfile et les manifests Kubernetes concernés, puis vérifier
-  avec `make apps-build` lorsque Docker est disponible.
+  `restock-service:1.1.6` sont indépendants de la version Maven. Ils sont déclarés
+  uniquement dans `architecture/gitops/<groupe>/application*.yaml` (lus par le `Makefile`
+  et par le workflow GitHub `build-images.yml`, qui publie les images sur GHCR). Changer
+  un tag, pousser, puis vérifier avec `make images-wait`.
 
 ## Infrastructure et observabilité
 

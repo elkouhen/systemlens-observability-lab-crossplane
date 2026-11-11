@@ -52,7 +52,8 @@ sondes Kubernetes sont TCP pour ne pas créer de transactions.
   `architecture/gitops/demo-api/application.yaml` déclare `platform.id=demo` et
   `deployment.environment.name=homologation` (ADR-020) ; sans plateforme
   servie, l'Edge rejette les signaux.
-- Docker pour construire l'image, le cluster k3s et le Secret
+- l'image publiée sur GHCR par le workflow GitHub `build-images.yml` (voir
+  [la livraison](../README.md#livraison-dune-nouvelle-version)), le cluster k3s et le Secret
   `otel-edge-client-keys`, copié par Crossplane (synchronisé par Argo CD via `make crossplane-apply`, attendu par
   `make demo-api-deploy`).
 
@@ -62,19 +63,20 @@ Depuis `architecture/` :
 
 ```bash
 make demo-api-test                # test Maven (Java 21)
-make demo-api-build               # image demo-api:1.1.1 avec l'agent Java OTel
-make demo-api-import              # import de l'image dans k3s
-make demo-api-deploy              # applique l'Application architecture/gitops/demo-api/application.yaml
-                                  # (build, import et déploiement sont inclus dans make deploy)
+make images-wait                  # attend les images publiées sur GHCR aux tags de Git
+make demo-api-deploy              # attend l'Application architecture/gitops/demo-api/application.yaml
+                                  # (incluse dans make deploy)
+make demo-api-build               # optionnel : image locale, sans publication
+make demo-api-import              # optionnel : import de l'image locale dans k3s
 make demo-api-call                # GET /api/hello?name=lab depuis le cluster
 make demo-api-call DEMO_API_PATH='/api/fail?reason=demo'
 make demo-api-jvm-metrics-verify  # métriques JVM des 5 dernières minutes
 make demo-api-logs-follow
 ```
 
-`DEMO_API_IMAGE_TAG` fixe le tag de l'image (`1.1.1` par défaut) ; un tag est
-immuable, en choisir un nouveau à chaque image. `make demo-api-deploy` l'inscrit dans
-l'Application, dont la Composition redéploie le service.
+Le tag de l'image est celui de `architecture/gitops/demo-api/application.yaml` (lu par le
+`Makefile` dans `DEMO_API_IMAGE_TAG` et par le workflow GitHub) ; un tag est immuable, en choisir un
+nouveau à chaque version, puis committer et pousser : GitHub publie l'image, Argo CD la déploie.
 
 ## Vérification
 

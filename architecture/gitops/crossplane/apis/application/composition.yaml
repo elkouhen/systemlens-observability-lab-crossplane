@@ -33,6 +33,7 @@ spec:
             {{- $ns := $xr.metadata.namespace }}
             {{- $otel := $xr.spec.otel }}
             {{- $image := printf "%s:%s" $xr.spec.image.name $xr.spec.image.tag }}
+            {{- with $xr.spec.image.registry }}{{ $image = printf "%s/%s" . $image }}{{ end }}
             {{- $configMap := printf "%s-otel-agent-config" $name }}
             {{- $pc := dict "kind" "ClusterProviderConfig" "name" $xr.spec.cluster }}
             {{- $probe := dict "tcpSocket" (dict "port" "http") }}
