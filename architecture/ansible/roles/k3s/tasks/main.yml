@@ -54,6 +54,33 @@
       {% endif %}
   register: k3s_configuration
 
+# GOMEMLIMIT : plafond souple du tas Go du serveur k3s (API server, contrôleurs, kine). Sans lui,
+# le serveur du hub, chargé des CRD des providers Crossplane, garde plus de 1,5 Gio de mémoire
+# récupérable. Non défini : drop-in absent, comportement par défaut de Go.
+- name: Créer le répertoire des drop-in systemd de k3s
+  ansible.builtin.file:
+    path: /etc/systemd/system/k3s.service.d
+    state: directory
+    mode: '0755'
+  when: k3s_go_memory_limit is defined
+
+- name: Plafonner la mémoire Go du serveur k3s
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/k3s.service.d/memory.conf
+    mode: '0644'
+    content: |
+      [Service]
+      Environment=GOMEMLIMIT={{ k3s_go_memory_limit }}
+  when: k3s_go_memory_limit is defined
+  register: k3s_memory_dropin
+
+- name: Retirer le plafond mémoire Go du serveur k3s
+  ansible.builtin.file:
+    path: /etc/systemd/system/k3s.service.d/memory.conf
+    state: absent
+  when: k3s_go_memory_limit is not defined
+  register: k3s_memory_dropin_removed
+
 - name: Vérifier la présence du binaire k3s
   ansible.builtin.stat:
     path: /usr/local/bin/k3s
@@ -131,11 +158,16 @@
       Vérifier la sortie de l'installeur et la distribution de la VM.
   when: not k3s_unit_after_install.stat.exists
 
+- name: Recharger systemd après le plafond mémoire
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: k3s_memory_dropin.changed or k3s_memory_dropin_removed.changed
+
 - name: Redémarrer k3s si sa configuration a changé
   ansible.builtin.systemd_service:
     name: k3s.service
     state: restarted
-  when: k3s_configuration.changed and k3s_binary.stat.exists
+  when: (k3s_configuration.changed or k3s_memory_dropin.changed or k3s_memory_dropin_removed.changed) and k3s_binary.stat.exists
 
 - name: Activer et démarrer k3s
   ansible.builtin.systemd_service:

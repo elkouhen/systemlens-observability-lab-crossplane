@@ -17,6 +17,8 @@ spec:
   parameters:
     # Charge pg_stat_statements (requêtes du receiver PostgreSQL : db.server.top_query).
     pg_stat_statements.track: all
+    # Budget mémoire du lab (limite du pod 512 Mio) : tampons partagés réduits.
+    shared_buffers: 64MB
 ---
 # MongoDB (MongoDB Controllers for Kubernetes) : crossplane_admin pour Terraform (mongodb.yaml, qui
 # crée otel_monitor) par le NodePort 30017, observability pour inventory-service (chaîne de connexion
