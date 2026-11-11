@@ -90,8 +90,14 @@ spec:
                       version: {{ $xr.spec.version }}
                       listeners: {{ toJson (list $internal $external) }}
                       {{- if $scram }}
+                      # Autoriseur standard de Kafka déclaré en « custom » (supportsAdminApi: false) : les
+                      # ACL restent entièrement à provider-kafka. En « simple », l'opérateur d'utilisateurs
+                      # supprime toutes les ACL des comptes sans KafkaUser à chaque réconciliation (2 min),
+                      # malgré STRIMZI_IGNORED_USERS_PATTERN, et ce comportement n'est pas paramétrable.
                       authorization:
-                        type: simple
+                        type: custom
+                        authorizerClass: org.apache.kafka.metadata.authorizer.StandardAuthorizer
+                        supportsAdminApi: false
                         superUsers: [{{ $xr.spec.adminUser.name }}]
                       {{- end }}
                       config: {{ toJson (merge (dict
@@ -116,10 +122,6 @@ spec:
                         userOperatorContainer:
                           env:
                             - {name: STRIMZI_IGNORED_USERS_PATTERN, value: {{ $xr.spec.ignoredUsersPattern | quote }}}
-                            # Le motif ci-dessus protège les comptes SCRAM, pas leurs ACL : la réconciliation
-                            # périodique (2 min) supprimait toutes les ACL de provider-kafka. Le seul KafkaUser
-                            # (administrateur) est super-utilisateur, sans ACL : l'opérateur n'en gère aucune.
-                            - {name: STRIMZI_ACLS_ADMIN_API_SUPPORTED, value: "false"}
                     {{- end }}
             {{- if $scram }}
             {{- $admin := $xr.spec.adminUser }}
