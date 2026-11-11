@@ -9,6 +9,7 @@ resources:
   - namespace.yaml
   - vm-services.yaml
   - ingress.yaml
+  - certificate.yaml
   - provider-configs.yaml
   - elasticsearch.yaml
   - fleet.yaml

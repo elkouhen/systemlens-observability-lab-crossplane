@@ -1,0 +1,8 @@
+# Certificats (Application Argo CD cert-manager) : cert-manager (chart Helm) et l'émetteur
+# autosigné du lab. Les Certificate sont déclarés dans le groupe qui les utilise
+# (elastic/certificate.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - helm-release.yaml
+  - cluster-issuer.yaml

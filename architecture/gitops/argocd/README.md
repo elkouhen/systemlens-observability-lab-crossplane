@@ -7,7 +7,8 @@ retirées du dépôt et réalignement (`selfHeal`) des modifications manuelles.
 
 ```text
 GitHub (main) ──▶ Argo CD ──▶ Application lab (apps/)
-                               ├─ crossplane      gitops/crossplane      API Application et OtelPlatform
+                               ├─ crossplane      gitops/crossplane      Crossplane (Helm), providers, API du lab
+                               ├─ cert-manager    gitops/cert-manager    cert-manager (Helm), émetteur autosigné
                                ├─ otel-pipeline   gitops/otel-pipeline   Kafka OTel, Service Edge, collecteurs
                                ├─ elastic         gitops/elastic         accès à elk-01, Elasticsearch, Fleet, Kibana
                                ├─ supermarket     gitops/supermarket     3 services et leurs bases
@@ -30,14 +31,21 @@ cycle suivant (3 minutes).
    - le plugin sidecar `ksops` du repo-server (`install/repo-server.yaml`, `install/cmp-ksops.yaml`),
      sur l'image KSOPS, et la clé privée age dans le Secret `argocd/sops-age`, lue depuis
      `SOPS_AGE_KEY_FILE` (`~/.config/sops/age/keys.txt` par défaut) ;
-   - le bundle CA de `k3s-01` dans `argocd-tls-certs-cm` pour `github.com` (proxy TLS d'entreprise) ;
+   - le bundle CA de `k3s-01` dans `argocd-tls-certs-cm` pour `github.com`, `charts.crossplane.io` et
+     `charts.jetstack.io` (proxy TLS d'entreprise) ;
    - l'interface en HTTP derrière Traefik.
-2. `make argocd-apps-apply` : vérifie les Secrets chiffrés (`make secrets-check`), signale les
+2. `make crossplane-ca-apply` : bundle CA de `k3s-01` dans le ConfigMap `crossplane-system/ca-bundle`,
+   lu par Crossplane pour télécharger ses paquets à travers le proxy.
+3. `make argocd-apps-apply` : vérifie les Secrets chiffrés (`make secrets-check`), signale les
    changements non poussés, puis applique l'Application racine `root.yaml`.
 
-Crossplane lui-même (Helm, paquets, runtime : `make crossplane-install`) reste installé par make :
-les groupes en dépendent. Les ressources dont la CRD n'existe pas encore (XRD en cours
-d'établissement) sont reprises par le retry des Application.
+4. `make crossplane-install` : attend Crossplane, ses providers et ses fonctions.
+
+Crossplane et cert-manager sont des charts Helm installés par des Application Argo CD imbriquées
+dans leur groupe (`crossplane/helm-release.yaml`, `cert-manager/helm-release.yaml`) : la version
+du chart se change dans Git. Les ressources dont la CRD n'existe pas encore (Provider avant
+Crossplane, Certificate avant cert-manager, XR avant leur XRD) sont reprises par le retry des
+Application.
 
 ## Clé age
 

@@ -1,4 +1,4 @@
-# Socle Crossplane : API Application et OtelPlatform (XRD et Compositions).
+# Socle Crossplane : Crossplane (chart Helm), providers et fonctions, API Application et OtelPlatform.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

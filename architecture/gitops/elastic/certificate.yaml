@@ -1,0 +1,17 @@
+# Certificat public des IngressRoutes Elasticsearch et Kibana (Secret elastic-public-tls), émis et
+# renouvelé par cert-manager (émetteur autosigné, groupe cert-manager). Mêmes caractéristiques
+# que l'ancien certificat openssl : générique *.observability.test, autorité (CA:TRUE), 825 jours.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: elastic-public-tls
+  namespace: elastic-stack
+spec:
+  secretName: elastic-public-tls
+  commonName: "*.observability.test"
+  dnsNames: ["*.observability.test", observability.test]
+  isCA: true
+  usages: [digital signature, key encipherment, server auth]
+  duration: 19800h
+  privateKey: {algorithm: RSA, size: 2048}
+  issuerRef: {kind: ClusterIssuer, name: selfsigned}

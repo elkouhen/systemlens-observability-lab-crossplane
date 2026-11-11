@@ -11,7 +11,8 @@ administrateurs).
 ```text
 gitops/
 ├── argocd/          installation d'Argo CD et une Application par groupe (apps/)
-├── crossplane/      socle : installation de Crossplane (install/), API du lab (apis/), scripts des Secrets
+├── crossplane/      socle : Crossplane (chart Helm), providers et fonctions (install/), API du lab (apis/), scripts des Secrets
+├── cert-manager/    cert-manager (chart Helm) et émetteur autosigné ; les Certificate vivent dans leur groupe
 ├── otel-pipeline/   chaîne OTel : Kafka OTel, Service Edge, collecteurs de k3s-01
 ├── elastic/         plateforme Elastic : accès depuis k3s-01, Elasticsearch, Fleet, Kibana
 ├── supermarket/     exemple de groupe applicatif : 3 services Java et leurs bases
@@ -47,9 +48,10 @@ Ajouter une application revient à créer un répertoire de groupe sur ce modèl
 
 | Groupe | Contenu | Remplace dans le lab |
 |---|---|---|
-| `crossplane` | XRD et Compositions des API `Application` (`apis/application`) et `OtelPlatform` (`apis/otel-platform` : 3 topics avec rétention et segments, ACL Write/Describe par publisher) ; `install/` (Crossplane, providers, fonctions, runtime), amorcé par `make crossplane-install` | `kubectl apply -k kubernetes/apps/*/default`, tâches `kafka-topics.sh` du rôle `otel_backend` |
+| `crossplane` | Crossplane lui-même (`helm-release.yaml` : chart Helm officiel par une Application Argo CD imbriquée), cache des paquets, providers, fonctions et runtime (`install/`) ; XRD et Compositions des API `Application` (`apis/application`) et `OtelPlatform` (`apis/otel-platform` : 3 topics avec rétention et segments, ACL Write/Describe par publisher)  | `kubectl apply -k kubernetes/apps/*/default`, tâches `kafka-topics.sh` du rôle `otel_backend` |
 | `otel-pipeline` | registre `OtelPlatform` (`platforms.yaml`, un document par plateforme, lu aussi par Ansible), comptes SCRAM `otel_publisher_<hôte>` et `otel_consumer` et ACL du collecteur backend (`kafka-accounts.yaml`), Service vers le Collecteur Edge (`edge-service.yaml`), collecteurs OTel de k3s-01 et leur RBAC (`kubernetes-collectors.yaml`), clés Bearer `otel-edge-client-keys` | `kafka-acls.sh`, comptes PLAIN de `kafka-jaas.conf.j2`, `kubectl apply -k` de la plateforme |
 | `elastic` | namespace `elastic-stack`, Services vers elk-01 et IngressRoutes ; via Terraform `elastic/elasticstack` : ILM, templates et pipelines `@custom`, clé API `otel-collector-writer` publiée dans `elastic-stack/otel-elasticsearch-credentials` (`elasticsearch.yaml`), 11 packages et policies Fleet (`fleet.yaml`), data view APM (`kibana-saved-objects.yaml`), 4 règles d'alerte (`kibana-alerting.yaml`) ; via provider-http : 2 dashboards (`kibana-dashboards.yaml`) | `retention.py`, `sync-fleet-policies.sh`, `xpack.fleet.*` de `kibana.yml.j2`, `sync-observability-policies.sh`, `deploy-kibana-dashboard.sh` |
+| `cert-manager` | cert-manager (`helm-release.yaml`, chart Helm officiel, CRD comprises) et `ClusterIssuer` autosigné `selfsigned` ; le certificat `elastic-public-tls` des IngressRoutes est déclaré dans `elastic/certificate.yaml` | certificat `openssl` de `make public-tls-apply` |
 | `demo-api` | namespace `h0tl-demo-app`, `Application` demo-api et sa configuration d'agent, clé Bearer de l'Edge | `kubectl apply -k kubernetes/apps/demo-api/default` |
 
 Les fichiers de `elastic/assets/` (ILM, pipelines, data view, règles, dashboards) sont la source de
@@ -124,10 +126,9 @@ provider-terraform garde ses providers Terraform (`TF_PLUGIN_CACHE_DIR`) et Cros
 
 | Élément | Raison |
 |---|---|
-| `make crossplane-install`, `make argocd-install` | Amorçage : Crossplane (Helm), ses paquets, Argo CD et la clé age ne peuvent pas se synchroniser eux-mêmes avant d'exister. |
+| `make argocd-install`, `make crossplane-ca-apply` | Amorçage : Argo CD, la clé age et le bundle CA du poste (proxy TLS d'entreprise) doivent exister avant toute synchronisation. Tout le reste, Crossplane et cert-manager compris, est installé par Argo CD. |
 | `make secrets-encrypt` | Les identifiants sont générés localement : il faut rechiffrer puis committer quand ils changent. |
 | `otel_admin`, `observability`, `elastic`, `kibana_system`, `crossplane_admin` (MongoDB) | Comptes créés au démarrage des services par Ansible ; ce sont eux que Crossplane utilise. Le provider `Kaginari/mongodb` s'authentifie toujours : il ne peut pas créer le premier compte. |
-| Secret TLS `elastic-public-tls` (`make public-tls-apply`) | Certificat autosigné généré localement par `openssl`. |
 | Migration ILM des indices existants (`make ilm-deploy`), suppression des data streams obsolètes | Opérations ponctuelles sur des données, pas un état cible. |
 | Doublons Fleet Server et clé d'enrôlement (`bootstrap-fleet-policies.sh`) | Opérations d'exécution sur des agents enrôlés. |
 | Construction et import des images (`make apps-build`, `images-import`) | Pas d'état à réconcilier ; l'`Application` fixe le tag à déployer. |
@@ -143,8 +144,8 @@ règle avec `sha256(MONGODB_PASSWORD:crossplane_admin)` ; `otel_monitor` garde `
 
 ```bash
 make kubernetes-validate           # rendu de chaque groupe (ksops et clé age requis : brew install ksops)
-make crossplane-install            # Crossplane, providers et fonctions (avec le bundle CA de k3s-01)
-make crossplane-apply              # Argo CD, puis tous les groupes depuis GitHub
+make crossplane-apply              # Argo CD, bundle CA, puis tous les groupes depuis GitHub (Crossplane compris)
+make crossplane-install            # attendre Crossplane, ses providers et ses fonctions (installés par Argo CD)
 make argocd-sync                   # relire le dépôt sans attendre (ARGOCD_APP=<groupe> pour un seul)
 make argocd-status                 # état de synchronisation et de santé de chaque groupe
 make crossplane-status             # ressources gérées, Application, Argo CD

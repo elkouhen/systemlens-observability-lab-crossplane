@@ -1,0 +1,7 @@
+# Émetteur autosigné du lab : les certificats des groupes (Certificate) en dépendent.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}

@@ -73,7 +73,7 @@ HELP_TARGETS := help architecture-status credentials-show credentials-generate c
 	otel-validate retention-validate retention-deploy retention-verify \
 	stock-show middleware-vm-provision k3s-vm-provision order-service-logs-follow inventory-service-logs-follow restock-service-logs-follow \
 	argocd-install argocd-apps-apply argocd-sync argocd-wait argocd-status argocd-ui secrets-encrypt secrets-check gitops-check \
-	crossplane-install crossplane-apply crossplane-status crossplane-platforms-apply
+	crossplane-install crossplane-ca-apply crossplane-apply crossplane-status crossplane-platforms-apply
 
 .PHONY: demo-api-test demo-api-build demo-api-import demo-api-deploy demo-api-call demo-api-jvm-metrics-verify demo-api-logs-follow help architecture-status c4-pages-build credentials-show credentials-generate cluster-info platform-status kubernetes-status java-version-verify apps-build apps-test command-center-build images-import kubernetes-validate ansible-validate otel-config-validate otel-routing-verify otel-legacy-datastreams-delete elastic-version-validate slides elastic-stack-deploy otel-elasticsearch-credentials-apply \
 	elk-deploy kibana-fleet-config-deploy fleet-assets-deploy fleet-prerequisites fleet-registry-ready fleet-server-start fleet-opamp-enable apm-data-view-deploy business-dashboard-deploy business-dashboard-replace apps-deploy fleet-sync \
@@ -244,18 +244,8 @@ k3d-ca-import: ## Faire confiance au certificat Zscaler dans les nœuds k3d (req
 
 ##@ Déploiement de la plateforme Elastic
 
-public-tls-apply: ## Créer ou réparer le certificat TLS public local du lab
-	@tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; recreate=1; \
-	if $(KUBECTL) -n $(K8S_NAMESPACE) get secret elastic-public-tls >/dev/null 2>&1; then \
-		$(KUBECTL) -n $(K8S_NAMESPACE) get secret elastic-public-tls -o jsonpath='{.data.tls\.crt}' | base64 --decode > "$$tmp_dir/current.crt"; \
-		if openssl x509 -in "$$tmp_dir/current.crt" -noout -checkend 0 >/dev/null 2>&1 && openssl x509 -in "$$tmp_dir/current.crt" -noout -text | grep -Fq 'CA:TRUE' && openssl x509 -in "$$tmp_dir/current.crt" -noout -text | grep -Fq 'DNS:*.observability.test'; then recreate=0; echo "Secret TLS public elastic-public-tls valide"; fi; \
-	fi; \
-	if test "$$recreate" = 1; then \
-		printf '%s\n' '[req]' 'distinguished_name = req_distinguished_name' 'x509_extensions = v3_req' 'prompt = no' '' '[req_distinguished_name]' 'CN = *.observability.test' '' '[v3_req]' 'subjectAltName = DNS:*.observability.test,DNS:observability.test' 'basicConstraints = critical,CA:TRUE' 'keyUsage = critical,digitalSignature,keyEncipherment' 'extendedKeyUsage = serverAuth' > "$$tmp_dir/openssl.cnf"; \
-		openssl req -x509 -nodes -newkey rsa:2048 -days 825 -keyout "$$tmp_dir/tls.key" -out "$$tmp_dir/tls.crt" -config "$$tmp_dir/openssl.cnf" >/dev/null 2>&1; \
-		$(KUBECTL) -n $(K8S_NAMESPACE) create secret tls elastic-public-tls --cert="$$tmp_dir/tls.crt" --key="$$tmp_dir/tls.key" --dry-run=client -o yaml | $(KUBECTL) apply -f -; \
-		echo "Secret TLS public elastic-public-tls créé ou réparé"; \
-	fi
+public-tls-apply: ## Attendre le certificat TLS public du lab (cert-manager, gitops/elastic/certificate.yaml)
+	@$(call CROSSPLANE_WAIT_READY,-n $(K8S_NAMESPACE),certificates.cert-manager.io/elastic-public-tls)
 
 elasticsearch-ready:
 	@password="$${ELASTIC_PASSWORD:?Set ELASTIC_PASSWORD outside Git}"; \
@@ -336,7 +326,7 @@ elk-deploy: elastic-stack-deploy ## Déployer la plateforme d'observabilité Ela
 	@# Configuration déclarative des back-ends et des objets de k3s-01, synchronisée par Argo CD
 	@# depuis GitHub (gitops/argocd), une Application par groupe : socle Crossplane, chaîne OTel,
 	@# Elastic, supermarché (services et leurs bases), demo-api.
-	@$(MAKE) crossplane-install crossplane-apply
+	@$(MAKE) crossplane-apply
 	@$(MAKE) crossplane-secrets-wait
 	@$(MAKE) public-tls-apply
 	@$(MAKE) crossplane-postgresql-wait crossplane-mongodb-wait
@@ -770,13 +760,15 @@ retention-verify: ## Contrôler les timers, Kafka et ILM effectivement déployé
 # Crossplane : socle (gitops/crossplane) ; configuration des back-ends dans chaque groupe de gitops/
 # ---------------------------------------------------------------------------
 GITOPS_ROOT := $(ARCH_ROOT)/gitops
-GITOPS_GROUPS := crossplane otel-pipeline elastic supermarket demo-api
+GITOPS_GROUPS := crossplane cert-manager otel-pipeline elastic supermarket demo-api
 CROSSPLANE_ROOT := $(GITOPS_ROOT)/crossplane
 COMMA := ,
-CROSSPLANE_VERSION ?= 2.4.3
 CROSSPLANE_TIMEOUT ?= 15m
 # Les ressources sont créées par Argo CD, de façon asynchrone : attendre qu'elles existent, puis
 # qu'elles soient Ready. $(call CROSSPLANE_WAIT_READY,<options de namespace>,<ressources>)
+CROSSPLANE_WAIT_HEALTHY = for i in $$(seq 1 180); do \
+	  test -n "$$($(KUBECTL) get $(subst --all,,$(1)) -o name 2>/dev/null)" && break; sleep 5; done; \
+	$(KUBECTL) wait --for=condition=Healthy $(1) --timeout=$(CROSSPLANE_TIMEOUT)
 CROSSPLANE_WAIT_READY = for i in $$(seq 1 180); do \
 	  test -n "$$($(KUBECTL) $(1) get $(subst --all,,$(2)) -o name 2>/dev/null)" && break; sleep 5; done; \
 	$(KUBECTL) $(1) wait --for=condition=Ready $(2) --timeout=$(CROSSPLANE_TIMEOUT)
@@ -810,9 +802,11 @@ argocd-install: ## Installer Argo CD (KSOPS, clé age, CA de k3s-01) dans k3s-01
 	@$(KUBECTL) create namespace argocd --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
 	@$(KUBECTL) -n argocd create secret generic sops-age --from-file=keys.txt='$(SOPS_AGE_KEY_FILE)' --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
 	@$(KUBECTL) apply --server-side --force-conflicts -k $(ARGOCD_ROOT)/install >/dev/null
-	@# Bundle CA de k3s-01 (racine du proxy TLS d'entreprise comprise) pour joindre github.com.
+	@# Bundle CA de k3s-01 (racine du proxy TLS d'entreprise comprise) pour joindre GitHub et les
+	@# dépôts Helm (Crossplane, cert-manager).
 	@test -s $(ARCH_ROOT)/.kube/ca-certificates.crt || $(VM) shell $(K3S_VM_NAME) 'cat /etc/ssl/certs/ca-certificates.crt' > $(ARCH_ROOT)/.kube/ca-certificates.crt
 	@$(KUBECTL) -n argocd create configmap argocd-tls-certs-cm --from-file=github.com=$(ARCH_ROOT)/.kube/ca-certificates.crt \
+		--from-file=charts.crossplane.io=$(ARCH_ROOT)/.kube/ca-certificates.crt --from-file=charts.jetstack.io=$(ARCH_ROOT)/.kube/ca-certificates.crt \
 		--dry-run=client -o yaml | $(KUBECTL) apply --server-side --force-conflicts -f - >/dev/null
 	@$(KUBECTL) -n argocd rollout status deployment/argocd-repo-server deployment/argocd-server --timeout=10m
 	@$(KUBECTL) -n argocd rollout status statefulset/argocd-application-controller --timeout=10m
@@ -838,26 +832,19 @@ argocd-ui: ## Afficher l'URL de l'interface Argo CD et copier le mot de passe ad
 	@$(KUBECTL) -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 --decode | pbcopy
 	@echo "http://argocd.localhost:8080 — utilisateur admin, mot de passe copié dans le presse-papiers"
 
-crossplane-install: ## Installer Crossplane, ses providers et ses fonctions dans k3s-01
-	@$(KUBECTL) create namespace crossplane-system --dry-run=client -o yaml | $(KUBECTL) apply -f -
-	@# Bundle CA de k3s-01 (inclut la racine du proxy TLS d'entreprise installée par Ansible)
-	@$(VM) shell $(K3S_VM_NAME) 'cat /etc/ssl/certs/ca-certificates.crt' > $(ARCH_ROOT)/.kube/ca-certificates.crt
+crossplane-ca-apply: ## Déposer le bundle CA de k3s-01 (racine du proxy TLS d'entreprise comprise) pour Crossplane
+	@$(KUBECTL) create namespace crossplane-system --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
+	@test -s $(ARCH_ROOT)/.kube/ca-certificates.crt || $(VM) shell $(K3S_VM_NAME) 'cat /etc/ssl/certs/ca-certificates.crt' > $(ARCH_ROOT)/.kube/ca-certificates.crt
 	@$(KUBECTL) -n crossplane-system create configmap ca-bundle --from-file=ca-certificates.crt=$(ARCH_ROOT)/.kube/ca-certificates.crt \
-		--dry-run=client -o yaml | $(KUBECTL) apply -f -
-	@# Cache des paquets Crossplane dans le cache local de l'hôte (install/package-cache.yaml).
-	@$(KUBECTL) apply -f $(CROSSPLANE_ROOT)/install/package-cache.yaml
-	@# Configuration Helm isolée : indépendante des dépôts configurés sur le poste.
-	@HELM_REPOSITORY_CONFIG=$(ARCH_ROOT)/.kube/helm/repositories.yaml HELM_REPOSITORY_CACHE=$(ARCH_ROOT)/.kube/helm/cache \
-		helm upgrade --install crossplane crossplane --repo https://charts.crossplane.io/stable --version $(CROSSPLANE_VERSION) \
-		-n crossplane-system --set registryCaBundleConfig.name=ca-bundle --set registryCaBundleConfig.key=ca-certificates.crt \
-		--set packageCache.pvc=crossplane-package-cache \
-		--wait --timeout 10m
-	@$(KUBECTL) apply -f $(CROSSPLANE_ROOT)/install/
-	@$(KUBECTL) wait --for=condition=Healthy providers.pkg.crossplane.io --all --timeout=$(CROSSPLANE_TIMEOUT)
-	@$(KUBECTL) wait --for=condition=Healthy functions.pkg.crossplane.io --all --timeout=$(CROSSPLANE_TIMEOUT)
+		--dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
 
-crossplane-apply: ## Installer Argo CD et lui confier toute la configuration (depuis GitHub, branche main)
-	@$(MAKE) argocd-install argocd-apps-apply
+crossplane-install: ## Attendre Crossplane, ses providers et ses fonctions, installés par Argo CD (groupe crossplane)
+	@$(MAKE) argocd-wait ARGOCD_APP=crossplane-helm
+	@$(call CROSSPLANE_WAIT_HEALTHY,providers.pkg.crossplane.io --all)
+	@$(call CROSSPLANE_WAIT_HEALTHY,functions.pkg.crossplane.io --all)
+
+crossplane-apply: ## Installer Argo CD et lui confier tout le reste (depuis GitHub, branche main), Crossplane compris
+	@$(MAKE) argocd-install crossplane-ca-apply argocd-apps-apply crossplane-install
 
 crossplane-kubernetes-apply: ## Faire relire le dépôt par Argo CD (après push)
 	@$(MAKE) argocd-sync
