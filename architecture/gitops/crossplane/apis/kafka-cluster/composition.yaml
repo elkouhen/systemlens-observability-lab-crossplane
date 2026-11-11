@@ -116,6 +116,10 @@ spec:
                         userOperatorContainer:
                           env:
                             - {name: STRIMZI_IGNORED_USERS_PATTERN, value: {{ $xr.spec.ignoredUsersPattern | quote }}}
+                            # Le motif ci-dessus protège les comptes SCRAM, pas leurs ACL : la réconciliation
+                            # périodique (2 min) supprimait toutes les ACL de provider-kafka. Le seul KafkaUser
+                            # (administrateur) est super-utilisateur, sans ACL : l'opérateur n'en gère aucune.
+                            - {name: STRIMZI_ACLS_ADMIN_API_SUPPORTED, value: "false"}
                     {{- end }}
             {{- if $scram }}
             {{- $admin := $xr.spec.adminUser }}
