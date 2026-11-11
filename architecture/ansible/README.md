@@ -8,7 +8,7 @@ sous ECK). Ansible n'installe que les hôtes : système, k3s et agents EDOT ; to
 CD et Crossplane ([`../gitops`](../gitops/README.md)).
 
 `k3s-01` et `elk-01` reçoivent un Elastic Agent en mode EDOT standalone. Il collecte les logs et
-métriques locaux et les envoie en OTLP au Collecteur Edge de `k3s-01` (ports d'hôte,
+métriques locaux et les envoie en OTLP au Collecteur Edge de `k3s-01` (ports du nœud,
 `otel_edge_endpoint` = `http://192.168.33.50:4318`). Le hub n'en a pas.
 La supervision de PostgreSQL, MongoDB et des deux Kafka, autrefois portée par les agents EDOT de
 `supermarket-middleware-01` et `otel-backend-01` (VM supprimées), est faite dans `k3s-01` par le

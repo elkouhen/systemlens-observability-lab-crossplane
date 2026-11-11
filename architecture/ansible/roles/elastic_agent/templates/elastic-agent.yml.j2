@@ -2,7 +2,7 @@ agent:
   grpc:
     port: 6790
 
-{# Télémétrie interne de l'agent sur 127.0.0.1:4320 : 4317 et 4318 sont les ports d'hôte du
+{# Télémétrie interne de l'agent sur 127.0.0.1:4320 : 4317 et 4318 sont les ports du nœud du
    Collecteur Edge sur k3s-01. #}
 {% set internal_telemetry_port = 4320 %}
 {# Chemin de sortie (ADR-015) : l'Edge déclaré par la VM. La supervision de
@@ -100,7 +100,7 @@ processors:
         action: upsert
 
 exporters:
-  # Le Collecteur Edge de k3s-01 (ports d'hôte), avec la clé OTEL_EDGE_KEY_<HOST>.
+  # Le Collecteur Edge de k3s-01 (ports du nœud), avec la clé OTEL_EDGE_KEY_<HOST>.
   # L'Edge publie dans le topic de la plateforme déclarée par la ressource.
   # Documentation : https://github.com/open-telemetry/opentelemetry-collector/tree/main/exporter/otlphttpexporter
   otlphttp/edge:

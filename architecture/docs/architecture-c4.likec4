@@ -94,7 +94,7 @@ model {
       data = container 'Bases de données' 'PostgreSQL (CloudNativePG) / MongoDB' 'Données du scénario supermarché'
       otel_kafka = queue 'Kafka OTel' 'Strimzi : topics otel-* protégés par SCRAM et ACL'
       backend_collector = container 'Backend OTel' 'EDOT Collector' 'Consomme les topics otel-* par regex et indexe en OTel natif'
-      edge_collector = container 'Collector Edge' 'EDOT Collector' 'Reçoit OTLP authentifié par Bearer (Service otel-edge, ports d’hôte 4317/4318) et publie dans Kafka OTel'
+      edge_collector = container 'Collector Edge' 'EDOT Collector' 'Reçoit OTLP authentifié par Bearer (Service otel-edge, ports du nœud 4317/4318) et publie dans Kafka OTel'
       k3s_agent = container 'Agent EDOT' 'Elastic Agent standalone' 'Collecte les signaux de la VM'
     }
   }

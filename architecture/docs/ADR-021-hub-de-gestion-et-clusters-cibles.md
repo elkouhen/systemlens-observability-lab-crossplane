@@ -28,7 +28,7 @@ pouvait que les configurer. L'objectif du lot 8 est de « faire un maximum avec 
   providers, cert-manager et la clé age. Deux clusters cibles : `k3s-01` (applicatif) et `elk-01`
   (observabilité). Le Collecteur Edge, d'abord resté sur la VM Ansible `otel-edge-01` derrière
   HAProxy, est un Deployment `otel-edge` de `k3s-01` (item H8) : Service `otel-edge` pour les clients
-  du cluster, ports d'hôte 4317 et 4318 de `192.168.33.50` pour les agents EDOT des VM et le poste
+  du cluster, ports du nœud 4317 et 4318 de `192.168.33.50` pour les agents EDOT des VM et le poste
   (redirection Lima). Son identité de producteur reste `otel-edge-01` (publishers de
   `platforms.yaml`, compte Kafka `otel_publisher_otel_edge_01`, ACL inchangées).
 - Argo CD enregistre les clusters cibles par des Secrets de cluster créés à l'amorçage

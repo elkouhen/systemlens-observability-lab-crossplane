@@ -15,7 +15,7 @@ param:
 portForwards:
   # API Kubernetes (.kube/k3s.config), sur le port 6444 de l'hôte : 6443 est celui du hub.
   - {guestPort: 6443, hostPort: 6444, hostIP: 127.0.0.1}
-  # Collecteur Edge (ports d'hôte du pod otel-edge) : OTLP depuis le poste (make otel-validate).
+  # Collecteur Edge (ports du nœud ouverts par le pod otel-edge (réseau de l'hôte)) : OTLP depuis le poste (make otel-validate).
   - {guestPort: 4317, hostPort: 4317, hostIP: 127.0.0.1}
   - {guestPort: 4318, hostPort: 4318, hostIP: 127.0.0.1}
   - guestPortRange: [1, 65535]

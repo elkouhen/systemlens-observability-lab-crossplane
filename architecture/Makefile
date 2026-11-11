@@ -600,7 +600,7 @@ fleet-opamp-enable: fleet-assets-deploy ## Activer le monitoring Fleet OpAMP des
 	KIBANA_URL='$(KIBANA_URL)' KIBANA_CURL_RESOLVE='$(KIBANA_CURL_RESOLVE)' KIBANA_PASSWORD="$$kibana_password" \
 		./$(ARCH_ROOT)/platform/elk/scripts/provision-fleet-vms.sh
 
-otel-gateway-vm-status: ## Vérifier le Collecteur EDOT Edge (santé, ports d'hôte de k3s-01) et le collecteur backend OTel
+otel-gateway-vm-status: ## Vérifier le Collecteur EDOT Edge (santé, ports du nœud de k3s-01) et le collecteur backend OTel
 	@$(KUBECTL_K3S) -n $(K8S_NAMESPACE) rollout status deployment/otel-edge --timeout=60s
 	@$(VM) shell $(K3S_VM_NAME) 'curl --fail --silent --max-time 5 -o /dev/null -w "Edge OTLP HTTP 192.168.33.50:4318 : %{http_code} (401 attendu sans clé)\n" -X POST http://192.168.33.50:4318/v1/metrics || test $$? = 22'
 	@$(MAKE) otel-backend-status

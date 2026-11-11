@@ -28,7 +28,7 @@ sont provisionnés par Ansible en mode EDOT standalone.
 
 | Composant | Déploiement | Fonction technique |
 | --- | --- | --- |
-| Collecteur Edge EDOT (`otel-edge`) | `k3s-01`, namespace `elastic-stack` | Authentifier les clients OTLP (`4317`, `4318` : Service et ports d’hôte) et publier dans Kafka |
+| Collecteur Edge EDOT (`otel-edge`) | `k3s-01`, namespace `elastic-stack` | Authentifier les clients OTLP (`4317`, `4318` : Service et ports du nœud) et publier dans Kafka |
 | EDOT DaemonSet | Kubernetes | Collecter les métriques hôte et kubelet prévues par la configuration |
 | Argo CD, Crossplane | `tools-01` (hub k3s) | Synchroniser Git et composer les ressources des clusters cibles (ADR-021) |
 | Kafka OTel (Strimzi) | `k3s-01` | Tamponner les signaux applicatifs, Kubernetes et VM dans des topics par plateforme |

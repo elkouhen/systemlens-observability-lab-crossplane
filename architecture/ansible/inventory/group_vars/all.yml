@@ -9,7 +9,7 @@ tools_ip: 192.168.33.60
 k3s_version: v1.31.6+k3s1
 k3s_install_script_url: "https://raw.githubusercontent.com/k3s-io/k3s/{{ k3s_version | replace('+', '%2B') }}/install.sh"
 vm_dns_servers: "1.1.1.1,8.8.8.8"
-# Collecteur Edge (gitops/otel-pipeline/k3s-01/edge-collector.yaml) : ports d'hôte 4317 et 4318
+# Collecteur Edge (gitops/otel-pipeline/k3s-01/edge-collector.yaml) : ports du nœud 4317 et 4318
 # de k3s-01, point d'entrée OTLP des agents EDOT des VM. Son identité dans le registre des
 # plateformes et dans Kafka est otel-edge-01 (otel_edge des group_vars, publishers de
 # platforms.yaml, compte otel_publisher_otel_edge_01).

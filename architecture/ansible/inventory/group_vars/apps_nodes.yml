@@ -5,6 +5,6 @@ otel_platform: k3s
 otel_environment: homologation
 otel_edge: otel-edge-01
 # Cluster applicatif : PostgreSQL, MongoDB et les deux Kafka sont exposés au hub par NodePort
-# (30000-32767), le Collecteur Edge par ports d'hôte (4317, 4318) ; ni Traefik ni ServiceLB.
+# (30000-32767), le Collecteur Edge par ports du nœud (4317, 4318) ; ni Traefik ni ServiceLB.
 k3s_disable: [traefik, servicelb]
 firewall_tcp_ports: [6443, 10250, 4317, 4318, "30000-32767"]

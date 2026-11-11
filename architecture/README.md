@@ -62,7 +62,7 @@ tools-01     192.168.33.60  hub k3s : Argo CD, Crossplane et providers, cert-man
    │  Argo CD (charts Helm, collecteurs)  ·  Crossplane (provider-kubernetes, providers des back-ends)
    ├──▶ k3s-01   192.168.33.50  k3s applicatif : services Java, PostgreSQL (CloudNativePG),
    │                            MongoDB, Kafka métier et Kafka OTel (Strimzi), Collecteur Edge
-   │                            (ports d'hôte 4317/4318), collecteurs OTel (Kubernetes, backend,
+   │                            (ports du nœud 4317/4318), collecteurs OTel (Kubernetes, backend,
    │                            supervision des back-ends)
    └──▶ elk-01   192.168.33.40  k3s + ECK : Elasticsearch, Kibana, Fleet Server 9.5.4 (Basic)
 ```

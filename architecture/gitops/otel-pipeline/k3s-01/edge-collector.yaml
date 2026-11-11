@@ -1,7 +1,9 @@
 # Collecteur EDOT Edge (ADR-015, ADR-020), point d'entrée OTLP unique du lab, dans k3s-01 :
 # - dans le cluster, Service otel-edge (applications, collecteurs Kubernetes et de supervision) ;
-# - hors du cluster, ports d'hôte 4317 et 4318 de k3s-01 (192.168.33.50) : agents EDOT des VM,
-#   et 127.0.0.1:4318 sur le poste par la redirection Lima de k3s-01 (make otel-validate).
+# - hors du cluster, ports 4317 et 4318 du nœud k3s-01 (192.168.33.50, réseau de l'hôte) : agents
+#   EDOT des VM, et 127.0.0.1:4317/4318 sur le poste par la redirection Lima de k3s-01. Le réseau de
+#   l'hôte plutôt que des hostPort : Lima ne redirige que des ports réellement ouverts dans la VM,
+#   pas les règles DNAT des hostPort.
 # Il authentifie chaque client par sa clé Bearer (Secret otel-edge-tokens), publie chaque
 # ressource dans le topic otel-<signal>-<plateforme>-<environnement> du Kafka OTel si
 # platforms.yaml attribue cette plateforme à l'Edge otel-edge-01 (publishers), et rejette les
@@ -189,7 +191,7 @@ metadata:
   namespace: elastic-stack
 spec:
   replicas: 1
-  # File persistante sur un volume ReadWriteOnce et ports d'hôte : un seul pod à la fois.
+  # File persistante sur un volume ReadWriteOnce et ports du nœud : un seul pod à la fois.
   strategy: {type: Recreate}
   selector:
     matchLabels: {app.kubernetes.io/name: otel-edge}
@@ -197,6 +199,9 @@ spec:
     metadata:
       labels: {app.kubernetes.io/name: otel-edge}
     spec:
+      hostNetwork: true
+      # Résolution DNS du cluster (Kafka OTel) malgré le réseau de l'hôte.
+      dnsPolicy: ClusterFirstWithHostNet
       securityContext:
         fsGroup: 1000
       containers:
@@ -215,10 +220,10 @@ spec:
             - name: OTEL_KAFKA_PUBLISHER_PASSWORD
               valueFrom: {secretKeyRef: {name: otel-collector-credentials, key: kafka-publisher-password}}
           ports:
-            # Ports d'hôte : entrée OTLP des agents EDOT des VM (192.168.33.50) et du poste
-            # (redirection Lima de k3s-01).
-            - {name: otlp-grpc, containerPort: 4317, hostPort: 4317}
-            - {name: otlp-http, containerPort: 4318, hostPort: 4318}
+            # Ports du nœud (réseau de l'hôte) : entrée OTLP des agents EDOT des VM (192.168.33.50)
+            # et du poste (redirection Lima de k3s-01).
+            - {name: otlp-grpc, containerPort: 4317}
+            - {name: otlp-http, containerPort: 4318}
             - {name: health, containerPort: 13135}
           volumeMounts:
             - {name: config, mountPath: /etc/otel, readOnly: true}
