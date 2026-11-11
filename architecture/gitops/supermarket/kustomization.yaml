@@ -1,11 +1,14 @@
-# Groupe supermarché (Application Argo CD supermarket) : les trois services Java (Application
-# Crossplane) et leurs back-ends sur supermarket-middleware-01, PostgreSQL (provider-sql),
-# MongoDB (Terraform) et Kafka métier (provider-kafka), avec leurs Secrets.
+# Groupe supermarché (Application Argo CD supermarket, synchronisée dans le hub) : les trois
+# services Java (Application Crossplane) et leurs back-ends dans k3s-01 (PostgreSQLInstance,
+# MongoDBInstance, KafkaCluster), leur configuration (provider-sql, Terraform, provider-kafka) et
+# leurs Secrets.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - secrets-app.yaml
   - namespace.yaml
+  - target.yaml
+  - databases.yaml
   - applications.yaml
   - postgresql.yaml
   - mongodb.yaml

@@ -1,0 +1,188 @@
+# MongoDBInstance -> objets du cluster cible (provider-kubernetes) :
+# - compte de service mongodb-kubernetes-appdb des pods et ses droits (l'opérateur, qui surveille tous
+#   les namespaces, ne le crée que dans le sien) ;
+# - un Secret de mot de passe par compte, valeur recopiée du Secret du hub ;
+# - MongoDBCommunity : replica set d'un membre, SCRAM, comptes et rôles déclarés ;
+# - Service NodePort vers le membre, pour le hub.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: mongodbinstance
+spec:
+  compositeTypeRef:
+    apiVersion: data.lab.io/v1alpha1
+    kind: MongoDBInstance
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource }}
+            {{- $name := $xr.metadata.name }}
+            {{- $ns := $xr.metadata.namespace }}
+            {{- $pc := dict "kind" "ClusterProviderConfig" "name" $xr.spec.cluster }}
+            {{- $sa := "mongodb-kubernetes-appdb" }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-serviceaccount
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "serviceaccount" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: ServiceAccount
+                  metadata: {name: {{ $sa }}, namespace: {{ $ns }}}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-role
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "role" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: Role
+                  metadata: {name: {{ $sa }}, namespace: {{ $ns }}}
+                  rules:
+                    - {apiGroups: [""], resources: [secrets], verbs: [get]}
+                    - {apiGroups: [""], resources: [pods], verbs: [patch, delete, get]}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-rolebinding
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "rolebinding" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata: {name: {{ $sa }}, namespace: {{ $ns }}}
+                  roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $sa }}}
+                  subjects:
+                    - {kind: ServiceAccount, name: {{ $sa }}, namespace: {{ $ns }}}
+            {{- $users := list }}
+            {{- range $user := $xr.spec.users }}
+            {{- $id := $user.name | replace "_" "-" | lower }}
+            {{- $users = append $users (dict "name" $user.name "db" $user.db "roles" $user.roles
+                  "passwordSecretRef" (dict "name" (printf "%s-%s-password" $name $id))
+                  "scramCredentialsSecretName" (printf "%s-%s" $name $id)
+                  "connectionStringSecretName" (printf "%s-%s" $name $id)) }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-{{ $id }}-password
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation (printf "password-%s" $id) }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              references:
+                - patchesFrom: {apiVersion: v1, kind: Secret, namespace: {{ $ns }}, name: {{ $user.passwordSecretRef.name }}, fieldPath: data.{{ $user.passwordSecretRef.key }}}
+                  toFieldPath: data.password
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: {{ $name }}-{{ $id }}-password
+                    namespace: {{ $ns }}
+            {{- end }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-mongodbcommunity
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "mongodbcommunity" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              # Prête quand l'opérateur déclare le replica set en fonctionnement.
+              readiness:
+                policy: DeriveFromCelQuery
+                celQuery: object.?status.?phase.orValue("") == "Running"
+              forProvider:
+                manifest:
+                  apiVersion: mongodbcommunity.mongodb.com/v1
+                  kind: MongoDBCommunity
+                  metadata:
+                    name: {{ $name }}
+                    namespace: {{ $ns }}
+                  spec:
+                    members: 1
+                    type: ReplicaSet
+                    version: {{ $xr.spec.version | quote }}
+                    security:
+                      authentication:
+                        modes: [SCRAM]
+                    users: {{ toJson $users }}
+                    additionalMongodConfig:
+                      storage.wiredTiger.engineConfig.cacheSizeGB: {{ $xr.spec.wiredTigerCacheSizeGB }}
+                    statefulSet:
+                      spec:
+                        template:
+                          spec:
+                            containers:
+                              - name: mongod
+                                resources:
+                                  requests: {cpu: 100m, memory: 256Mi}
+                                  limits: {memory: 768Mi}
+                              - name: mongodb-agent
+                                resources:
+                                  requests: {cpu: 50m, memory: 128Mi}
+                                  limits: {memory: 256Mi}
+                        volumeClaimTemplates:
+                          - metadata: {name: data-volume}
+                            spec:
+                              accessModes: [ReadWriteOnce]
+                              resources: {requests: {storage: {{ $xr.spec.storage }}}}
+                          - metadata: {name: logs-volume}
+                            spec:
+                              accessModes: [ReadWriteOnce]
+                              resources: {requests: {storage: 1Gi}}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-nodeport
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "nodeport" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Service
+                  metadata:
+                    name: {{ $name }}-nodeport
+                    namespace: {{ $ns }}
+                  spec:
+                    type: NodePort
+                    selector:
+                      app: {{ $name }}-svc
+                    ports:
+                      - {name: mongodb, port: 27017, targetPort: 27017, nodePort: {{ $xr.spec.nodePort }}}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

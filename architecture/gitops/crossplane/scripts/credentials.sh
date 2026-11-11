@@ -22,30 +22,38 @@ secret() { # groupe, namespace, nom, puis paires clé=valeur
 }
 edge_keys=(otel-kubernetes="$OTEL_EDGE_KEY_KUBERNETES" otel-kubernetes-cluster="$OTEL_EDGE_KEY_KUBERNETES_CLUSTER")
 
-# Chaîne OTel : provider-kafka (otel_admin), comptes SCRAM, clés Bearer de l'Edge des collecteurs.
-secret otel-pipeline crossplane-system kafka-otel-admin credentials="$(jq -cn --arg p "$(derive otel_admin)" \
-  '{brokers: ["192.168.33.20:9092"], sasl: {mechanism: "PLAIN", username: "otel_admin", password: $p}}')"
+# Chaîne OTel : provider-kafka (otel-admin, listener externe du Kafka OTel de k3s-01), mot de passe
+# de l'administrateur Strimzi, comptes SCRAM, clés Bearer de l'Edge et comptes de supervision des
+# collecteurs (recopiés dans k3s-01 par otel-pipeline/target.yaml).
+secret otel-pipeline crossplane-system kafka-otel-admin credentials="$(jq -cn --arg p "$(derive otel-admin)" \
+  '{brokers: ["192.168.33.50:31092"], sasl: {mechanism: "SCRAM-SHA-512", username: "otel-admin", password: $p}}')"
+secret otel-pipeline elastic-stack kafka-otel-admin-password password="$(derive otel-admin)"
 secret otel-pipeline crossplane-system kafka-otel-accounts \
   otel_publisher_otel_edge_01="$(derive otel_publisher_otel_edge_01)" \
-  otel_publisher_otel_backend_01="$(derive otel_publisher_otel_backend_01)" \
   otel_consumer="$KAFKA_OTEL_CONSUMER_PASSWORD"
 secret otel-pipeline elastic-stack otel-edge-client-keys "${edge_keys[@]}"
+secret otel-pipeline elastic-stack otel-collector-credentials kafka-consumer-password="$KAFKA_OTEL_CONSUMER_PASSWORD" \
+  postgresql-password="$POSTGRESQL_PASSWORD" mongodb-password="$MONGODB_PASSWORD"
 
 # Elastic : Terraform, API Kibana, mot de passe elastic lu par les cibles make.
 secret elastic crossplane-system elastic-terraform tfvars="$(jq -cn --arg p "$ELASTIC_PASSWORD" '{elastic_password: $p}')"
 secret elastic crossplane-system kibana-auth basic="$(printf 'elastic:%s' "$ELASTIC_PASSWORD" | base64 | tr -d '\n')"
 secret elastic elastic-stack elasticsearch-es-elastic-user elastic="$ELASTIC_PASSWORD"
 
-# Supermarché : Kafka métier, PostgreSQL, MongoDB (compte crossplane_admin amorcé par Ansible, mot de
-# passe dérivé de MONGODB_PASSWORD comme mongodb_crossplane_password dans group_vars/all.yml ;
-# otel_monitor garde MONGODB_PASSWORD, lu par les agents EDOT), Secrets des services.
-secret supermarket crossplane-system kafka-business credentials='{"brokers": ["192.168.33.10:9092"]}'
-secret supermarket crossplane-system postgresql-admin endpoint=192.168.33.10 port=5432 username=observability password="$POSTGRESQL_PASSWORD"
+# Supermarché : accès du hub aux back-ends de k3s-01 par NodePort (Kafka métier, PostgreSQL en
+# superutilisateur postgres, MongoDB avec crossplane_admin, dont le mot de passe est dérivé de
+# MONGODB_PASSWORD), comptes des instances (PostgreSQLInstance, MongoDBInstance ; otel_monitor garde
+# MONGODB_PASSWORD), Secrets des services.
+secret supermarket crossplane-system kafka-business credentials='{"brokers": ["192.168.33.50:31192"]}'
+secret supermarket crossplane-system postgresql-admin endpoint=192.168.33.50 port=30432 username=postgres password="$POSTGRESQL_PASSWORD"
 secret supermarket crossplane-system postgresql-otel password="$POSTGRESQL_PASSWORD"
 secret supermarket crossplane-system mongodb-terraform tfvars="$(jq -cn \
   --arg a "$(printf '%s:%s' "$MONGODB_PASSWORD" crossplane_admin | shasum -a 256 | cut -d' ' -f1)" \
   --arg m "$MONGODB_PASSWORD" '{mongodb_admin_password: $a, otel_monitor_password: $m}')"
 secret supermarket h0tl-supermarche-app postgresql-credentials password="$POSTGRESQL_PASSWORD"
+secret supermarket h0tl-supermarche-app mongodb-credentials \
+  crossplane_admin="$(printf '%s:%s' "$MONGODB_PASSWORD" crossplane_admin | shasum -a 256 | cut -d' ' -f1)" \
+  observability="$MONGODB_PASSWORD"
 secret supermarket h0tl-supermarche-app otel-edge-client-keys "${edge_keys[@]}"
 
 # demo-api : clé Bearer de l'Edge.

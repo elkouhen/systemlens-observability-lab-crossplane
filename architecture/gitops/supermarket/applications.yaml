@@ -1,6 +1,8 @@
 # Les trois services du scénario supermarché, déclarés comme des Application Crossplane
 # (gitops/crossplane/apis/application). La Composition produit leur Deployment, leur Service et
-# leur instrumentation OTel. Synchronisé par Argo CD depuis Git (kustomization.yaml injecte
+# leur instrumentation OTel dans k3s-01. Leurs back-ends (databases.yaml) sont dans le même
+# namespace de k3s-01 : Services kafka-bootstrap de Strimzi, rw de CloudNativePG, Secret de
+# connexion de MongoDB. Synchronisé par Argo CD depuis Git (kustomization.yaml injecte
 # otel-agent.yaml) ; changer un tag ici, puis committer et pousser, redéploie le service.
 #
 # Niveaux de log (ADR-012) : les logs OTel doivent porter le trace_id du traitement qui les émet.
@@ -21,7 +23,7 @@ spec:
     platform: supermarche
     micrometerMetrics: true
   env:
-    - {name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "192.168.33.10:9092"}
+    - {name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "supermarket-kafka-kafka-bootstrap:9092"}
     - {name: ORDER_SERVICE_INVENTORY_SERVICE_URL, value: "http://inventory-service:3001"}
     - {name: LOGGING_LEVEL_ROOT, value: WARN}
     - {name: LOGGING_LEVEL_IO_SYSTEMLENS, value: INFO}
@@ -39,13 +41,17 @@ spec:
     platform: supermarche
     micrometerMetrics: true
   env:
-    - {name: SPRING_DATA_MONGODB_URI, value: "mongodb://192.168.33.10:27017/observability_test?directConnection=true"}
-    - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://192.168.33.10:5432/observability_test"}
-    - {name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "192.168.33.10:9092"}
+    - name: SPRING_DATA_MONGODB_URI
+      valueFrom:
+        secretKeyRef: {name: supermarket-mongodb-observability, key: connectionString.standard}
+    # La chaîne de connexion désigne la base d'authentification (admin).
+    - {name: SPRING_DATA_MONGODB_DATABASE, value: observability_test}
+    - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://supermarket-postgresql-rw:5432/observability_test"}
+    - {name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "supermarket-kafka-kafka-bootstrap:9092"}
     - {name: SPRING_DATASOURCE_USERNAME, value: observability}
     - name: SPRING_DATASOURCE_PASSWORD
       valueFrom:
-        secretKeyRef: {name: postgresql-credentials, key: password}
+        secretKeyRef: {name: supermarket-postgresql-owner, key: password}
     - {name: LOGGING_LEVEL_ROOT, value: WARN}
     - {name: LOGGING_LEVEL_IO_SYSTEMLENS, value: INFO}
 ---
@@ -62,6 +68,6 @@ spec:
     platform: supermarche
     micrometerMetrics: true
   env:
-    - {name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "192.168.33.10:9092"}
+    - {name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "supermarket-kafka-kafka-bootstrap:9092"}
     - {name: LOGGING_LEVEL_ROOT, value: WARN}
     - {name: LOGGING_LEVEL_IO_SYSTEMLENS, value: INFO}

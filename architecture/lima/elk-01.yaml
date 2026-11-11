@@ -1,6 +1,8 @@
-# elk-01 : nom, IP privée, mémoire et disque de la VM
+# elk-01 : cluster d'observabilité k3s + ECK (Elasticsearch, Kibana, Fleet Server), piloté depuis
+# le hub tools-01. Les Services LoadBalancer (ServiceLB de k3s) gardent les points d'accès
+# 192.168.33.40:9200, 5601 et 8220.
 base: ./base.yaml
-memory: 6GiB
+memory: 5GiB
 disk: 30GiB
 ssh:
   localPort: 2254
@@ -8,6 +10,8 @@ param:
   HOSTNAME: elk-01
   NODE_IP: 192.168.33.40
 portForwards:
+  # API Kubernetes (.kube/elk.config), sur le port 6445 de l'hôte.
+  - {guestPort: 6443, hostPort: 6445, hostIP: 127.0.0.1}
   - {guestPort: 9200, hostIP: 127.0.0.1}
   - {guestPort: 5601, hostIP: 127.0.0.1}
   - {guestPort: 8220, hostIP: 127.0.0.1}

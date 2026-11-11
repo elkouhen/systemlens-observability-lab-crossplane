@@ -1,0 +1,25 @@
+# Strimzi 1.3.1 (Kafka 4.3), dans k3s-01 : instances KafkaCluster, tous namespaces.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: strimzi-k3s-01
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://strimzi.io/charts/
+    chart: strimzi-kafka-operator
+    targetRevision: 1.3.1
+    helm:
+      valuesObject:
+        watchAnyNamespace: true
+        resources:
+          requests: {cpu: 100m, memory: 320Mi}
+          limits: {memory: 384Mi}
+  destination: {name: k3s-01, namespace: strimzi}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+    retry:
+      limit: 30
+      backoff: {duration: 10s, factor: 2, maxDuration: 3m}

@@ -3,31 +3,16 @@ ansible_user: lab
 # Les VM Lima ne sont pas routées depuis l'hôte : SSH est tunnelé vers le port local
 # fixe de chaque VM (ansible_port), ansible_host gardant l'IP privée 192.168.33.x.
 ansible_ssh_common_args: -o ProxyCommand="nc 127.0.0.1 %p" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes
-supermarket_middleware_ip: 192.168.33.10
-otel_backend_ip: 192.168.33.20
 otel_edge_ip: 192.168.33.30
 elk_ip: 192.168.33.40
 k3s_ip: 192.168.33.50
+tools_ip: 192.168.33.60
 k3s_version: v1.31.6+k3s1
 k3s_install_script_url: "https://raw.githubusercontent.com/k3s-io/k3s/{{ k3s_version | replace('+', '%2B') }}/install.sh"
 vm_dns_servers: "1.1.1.1,8.8.8.8"
-postgresql_database: observability_test
-postgresql_user: observability
-postgresql_password: "{{ lookup('env', 'POSTGRESQL_PASSWORD') | default('', true) }}"
-postgresql_otel_user: otel
-postgresql_otel_password: "{{ postgresql_password }}"
-mongodb_otel_user: otel_monitor
-mongodb_password: "{{ lookup('env', 'MONGODB_PASSWORD') | default(lookup('env', 'POSTGRESQL_PASSWORD') | default('', true), true) }}"
-mongodb_otel_password: "{{ mongodb_password }}"
-# Compte administrateur MongoDB de Crossplane (gitops/supermarket/mongodb.yaml) : même dérivation que
-# scripts/credentials.sh, sha256("<MONGODB_PASSWORD>:crossplane_admin").
-mongodb_crossplane_user: crossplane_admin
-mongodb_crossplane_password: "{{ (mongodb_password ~ ':crossplane_admin') | hash('sha256') }}"
-kafka_cluster_id: q1Sh-9_ISia_zwGINzRvyQ
-kafka_controller_voters: 1@192.168.33.10:9093
-otel_kafka_cluster_id: otelQ1Sh-9_ISia_zwGINzRvyQ
-otel_kafka_controller_voters: 2@192.168.33.20:9093
-otel_gateway_kafka_broker: 192.168.33.20:9092
+# Kafka OTel (Strimzi, k3s-01) : listener externe SCRAM exposé par NodePort sur k3s-01, utilisé
+# par le Collecteur Edge (gitops/otel-pipeline/kafka.yaml, KafkaCluster otel-kafka).
+otel_gateway_kafka_broker: 192.168.33.50:31092
 # Registre des plateformes (ADR-015, ADR-017, ADR-020) : source unique dans
 # gitops/otel-pipeline/platforms.yaml (ressources OtelPlatform). Crossplane en déduit les
 # topics otel-{logs,metrics,traces}-<platform>-<environment> et les ACL d'écriture de chaque
@@ -35,23 +20,18 @@ otel_gateway_kafka_broker: 192.168.33.20:9092
 otel_platforms: >-
   {{ lookup('ansible.builtin.file', inventory_dir ~ '/../../gitops/otel-pipeline/platforms.yaml')
      | from_yaml_all | select | map(attribute='spec') | list }}
-# Identifiants Kafka OTel (ADR-017). Chaque producteur (Edge ou agent EDOT
-# kafka-local) a son utilisateur otel_publisher_<hôte>, limité par ACL aux
-# topics des plateformes qui lui sont attribuées (otel_platforms). Son mot de
-# passe est dérivé du secret racine KAFKA_OTEL_PUBLISHER_PASSWORD, qui reste
-# sur le poste de l'opérateur ; l'utilisateur otel_admin (broker, outils
-# d'administration) en dérive aussi, comme les comptes de tous les
-# producteurs déclarés par le broker (roles/otel_backend/tasks/platforms.yml).
+# Identifiants Kafka OTel (ADR-017). Chaque producteur (Edge) a son utilisateur
+# otel_publisher_<hôte>, limité par ACL aux topics des plateformes qui lui sont
+# attribuées (otel_platforms). Son mot de passe est dérivé du secret racine
+# KAFKA_OTEL_PUBLISHER_PASSWORD, qui reste sur le poste de l'opérateur ;
+# l'administrateur otel-admin (provider-kafka de Crossplane, vérifications) en
+# dérive aussi (gitops/crossplane/scripts/credentials.sh).
 otel_kafka_secret: "{{ lookup('env', 'KAFKA_OTEL_PUBLISHER_PASSWORD') | default('', true) }}"
 otel_kafka_publisher_username: "otel_publisher_{{ inventory_hostname | replace('-', '_') }}"
 otel_kafka_publisher_password: "{{ (otel_kafka_secret ~ ':' ~ otel_kafka_publisher_username) | hash('sha256') if otel_kafka_secret else '' }}"
-otel_kafka_admin_username: otel_admin
+otel_kafka_admin_username: otel-admin
 otel_kafka_admin_password: "{{ (otel_kafka_secret ~ ':' ~ otel_kafka_admin_username) | hash('sha256') if otel_kafka_secret else '' }}"
-otel_kafka_consumer_username: otel_consumer
-otel_kafka_consumer_password: "{{ lookup('env', 'KAFKA_OTEL_CONSUMER_PASSWORD') | default('', true) }}"
 elastic_agent_version: 9.5.4
-elastic_password: "{{ lookup('env', 'ELASTIC_PASSWORD') | default('', true) }}"
-otel_elasticsearch_api_key: "{{ lookup('env', 'OTEL_ELASTICSEARCH_API_KEY') | default('', true) }}"
 # Clé Bearer de chaque VM auprès de son Edge (ADR-015) : OTEL_EDGE_KEY_<HOST>,
 # hôte en majuscules, tirets remplacés par des soulignés, fournie hors Git.
 # Les collecteurs Kubernetes gardent leurs deux clés propres.

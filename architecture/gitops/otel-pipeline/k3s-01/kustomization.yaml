@@ -1,0 +1,11 @@
+# Manifests de la chaîne OTel dans k3s-01 (Application otel-pipeline-k3s-01) : Service vers le
+# Collecteur Edge, collecteurs Kubernetes, collecteur backend (Kafka OTel -> Elasticsearch) et
+# collecteur de supervision des back-ends (PostgreSQL, MongoDB, Kafka).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - edge-service.yaml
+  - kubernetes-collectors.yaml
+  - backend-collector.yaml
+  - middleware-collector.yaml

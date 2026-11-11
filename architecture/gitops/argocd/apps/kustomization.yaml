@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - crossplane.yaml
   - cert-manager.yaml
+  - operators.yaml
   - otel-pipeline.yaml
   - elastic.yaml
   - supermarket.yaml

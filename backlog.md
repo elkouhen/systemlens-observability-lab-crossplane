@@ -336,7 +336,12 @@ supprimées : supermarket-middleware-01, otel-backend-01
 
 Contrainte : le Mac a 16 Go. Mesurer la mémoire réelle à chaque étape (`top`, `limactl list`).
 
-- [ ] H0 Mesurer la mémoire utilisée par les 5 VM actuelles (référence).
+- [x] H0 Mesurer la mémoire utilisée par les 5 VM actuelles (référence).
+  Résultat (11 novembre 2026, lab déployé, `free -m` dans chaque VM, colonne « used ») :
+  supermarket-middleware-01 1 067 Mio / 3 Gio, otel-backend-01 1 157 Mio / 3 Gio, otel-edge-01
+  590 Mio / 2 Gio, elk-01 3 166 Mio / 6 Gio, k3s-01 4 264 Mio / 8 Gio : 10,0 Gio utilisés pour
+  22 Gio alloués. Côté Mac (16 Gio) : 15 Gio occupés dont 8 Gio compressés (`top`), la VM Docker
+  Desktop (10 Gio) tournant en parallèle ; `memory_pressure` : 34 % libres.
 - [ ] H1 Hub `tools-01` : VM Lima, k3s, Argo CD, Crossplane, cert-manager, clé age ; k3s-01 et
   elk-01 enregistrés comme clusters Argo CD ; provider-kubernetes (une ProviderConfig par cluster
   cible) pour composer des objets dans les clusters cibles.

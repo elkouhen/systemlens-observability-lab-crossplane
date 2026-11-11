@@ -1,0 +1,175 @@
+# Supervision des back-ends de k3s-01 (remplace les receivers des agents EDOT des anciennes VM
+# supermarket-middleware-01 et otel-backend-01) : PostgreSQL, MongoDB et Kafka métier du supermarché
+# (plateforme supermarche), Kafka OTel (plateforme elk). Mêmes receivers, donc mêmes data streams
+# (metrics-postgresqlreceiver.otel-supermarche_homologation…) et mêmes dashboards. Les signaux
+# passent par l'Edge comme ceux des autres collecteurs Kubernetes (clé otel-kubernetes-cluster).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-middleware-config
+  namespace: elastic-stack
+data:
+  middleware.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+    receivers:
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/postgresqlreceiver
+      postgresql/supermarket:
+        endpoint: supermarket-postgresql-rw.h0tl-supermarche-app.svc:5432
+        username: otel
+        password: "${env:POSTGRESQL_OTEL_PASSWORD}"
+        databases: [observability_test]
+        collection_interval: 30s
+        initial_delay: 5s
+        metrics:
+          postgresql.blks_hit: {enabled: true}
+          postgresql.blks_read: {enabled: true}
+          postgresql.database.locks: {enabled: true}
+          postgresql.deadlocks: {enabled: true}
+          postgresql.sequential_scans: {enabled: true}
+          postgresql.temp_files: {enabled: true}
+          postgresql.temp.io: {enabled: true}
+          postgresql.tup_deleted: {enabled: true}
+          postgresql.tup_fetched: {enabled: true}
+          postgresql.tup_inserted: {enabled: true}
+          postgresql.tup_returned: {enabled: true}
+          postgresql.tup_updated: {enabled: true}
+          postgresql.wal.delay: {enabled: true}
+          postgresql.function.calls: {enabled: true}
+        events:
+          db.server.query_sample: {enabled: true}
+          db.server.top_query: {enabled: true}
+        query_sample_collection:
+          max_rows_per_query: 100
+        top_query_collection:
+          max_rows_per_query: 100
+          top_n_query: 200
+          max_explain_each_interval: 1000
+          query_plan_cache_size: 1000
+          query_plan_cache_ttl: 1h
+        tls:
+          insecure: true
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/mongodbreceiver
+      mongodb/supermarket:
+        hosts:
+          - endpoint: supermarket-mongodb-svc.h0tl-supermarche-app.svc:27017
+        username: otel_monitor
+        password: "${env:MONGODB_OTEL_PASSWORD}"
+        collection_interval: 60s
+        initial_delay: 5s
+        direct_connection: true
+        tls:
+          insecure: true
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/kafkametricsreceiver
+      kafkametrics/supermarket:
+        brokers: [supermarket-kafka-kafka-bootstrap.h0tl-supermarche-app.svc:9092]
+        protocol_version: 3.9.0
+        scrapers: [brokers, topics, consumers]
+        collection_interval: 60s
+      kafkametrics/otel:
+        brokers: [otel-kafka-kafka-bootstrap.elastic-stack.svc:9092]
+        protocol_version: 3.9.0
+        auth:
+          sasl:
+            username: otel_consumer
+            password: "${env:OTEL_KAFKA_CONSUMER_PASSWORD}"
+            mechanism: SCRAM-SHA-512
+        scrapers: [brokers, topics, consumers]
+        collection_interval: 60s
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 200
+        spike_limit_mib: 50
+      batch:
+        timeout: 5s
+        send_batch_size: 256
+      # Plateforme des signaux (ADR-020) : l'Edge publie dans le topic de la plateforme déclarée.
+      resource/supermarche:
+        attributes:
+          - {key: platform.id, value: supermarche, action: upsert}
+          - {key: deployment.environment.name, value: homologation, action: upsert}
+          - {key: host.name, value: "${env:K8S_NODE_NAME}", action: upsert}
+          - {key: service.name, value: otel-middleware, action: upsert}
+      resource/elk:
+        attributes:
+          - {key: platform.id, value: elk, action: upsert}
+          - {key: deployment.environment.name, value: homologation, action: upsert}
+          - {key: host.name, value: "${env:K8S_NODE_NAME}", action: upsert}
+          - {key: service.name, value: otel-middleware, action: upsert}
+      attributes/mongodb:
+        actions:
+          - {key: mongodb.instance, value: supermarket-mongodb, action: upsert}
+    exporters:
+      otlp/edge:
+        endpoint: http://otel-edge-vm.elastic-stack.svc.cluster.local:4317
+        tls:
+          insecure: true
+        headers:
+          Authorization: "Bearer ${env:OTEL_EDGE_API_KEY}"
+    service:
+      extensions: [health_check]
+      pipelines:
+        metrics/supermarche:
+          receivers: [postgresql/supermarket, kafkametrics/supermarket]
+          processors: [memory_limiter, resource/supermarche, batch]
+          exporters: [otlp/edge]
+        metrics/mongodb:
+          receivers: [mongodb/supermarket]
+          processors: [memory_limiter, resource/supermarche, attributes/mongodb, batch]
+          exporters: [otlp/edge]
+        logs/postgresql:
+          receivers: [postgresql/supermarket]
+          processors: [memory_limiter, resource/supermarche, batch]
+          exporters: [otlp/edge]
+        metrics/otel-kafka:
+          receivers: [kafkametrics/otel]
+          processors: [memory_limiter, resource/elk, batch]
+          exporters: [otlp/edge]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-middleware
+  namespace: elastic-stack
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: otel-middleware}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: otel-middleware}
+    spec:
+      containers:
+        - name: collector
+          image: docker.elastic.co/elastic-agent/elastic-otel-collector:9.5.4
+          args: ["--config=/etc/otel/middleware.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            seccompProfile: {type: RuntimeDefault}
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            - name: OTEL_EDGE_API_KEY
+              valueFrom: {secretKeyRef: {name: otel-edge-client-keys, key: otel-kubernetes-cluster}}
+            - name: POSTGRESQL_OTEL_PASSWORD
+              valueFrom: {secretKeyRef: {name: otel-collector-credentials, key: postgresql-password}}
+            - name: MONGODB_OTEL_PASSWORD
+              valueFrom: {secretKeyRef: {name: otel-collector-credentials, key: mongodb-password}}
+            - name: OTEL_KAFKA_CONSUMER_PASSWORD
+              valueFrom: {secretKeyRef: {name: otel-collector-credentials, key: kafka-consumer-password}}
+          ports:
+            - {name: health, containerPort: 13133}
+          volumeMounts:
+            - {name: config, mountPath: /etc/otel, readOnly: true}
+          readinessProbe: {httpGet: {path: /, port: health}}
+          livenessProbe: {httpGet: {path: /, port: health}}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 256Mi}
+      volumes:
+        - name: config
+          configMap: {name: otel-middleware-config}

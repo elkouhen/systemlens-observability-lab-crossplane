@@ -1,0 +1,16 @@
+# tools-01 : cluster de gestion (hub) k3s : Argo CD, Crossplane et ses providers, cert-manager.
+# Il pilote les clusters cibles k3s-01 (applicatif) et elk-01 (observabilité).
+base: ./base.yaml
+memory: 4GiB
+disk: 30GiB
+ssh:
+  localPort: 2256
+param:
+  HOSTNAME: tools-01
+  NODE_IP: 192.168.33.60
+portForwards:
+  # API Kubernetes du hub (.kube/tools.config) et interface Argo CD (http://argocd.localhost:8080).
+  - {guestPort: 6443, hostIP: 127.0.0.1}
+  - {guestPort: 80, hostPort: 8080, hostIP: 127.0.0.1}
+  - guestPortRange: [1, 65535]
+    ignore: true

@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Exécuté en root dans k3s-01 (make cache-save-k3s-images) : sauvegarde chaque image de containerd
-# (k8s.io) dans le cache local de l'hôte, une archive par image, sous un nom temporaire renommé
+# Exécuté en root dans chaque VM k3s (make cache-save-k3s-images) : sauvegarde chaque image de
+# containerd (k8s.io) dans le cache local de l'hôte, une archive par image et un répertoire par VM,
+# sous un nom temporaire renommé
 # ensuite. Le rôle Ansible k3s les fait importer par k3s au premier démarrage d'une VM neuve.
 # Une image déjà en cache n'est pas réexportée. Certaines images (index multi-plateformes dont une
 # partie manque) sont complétées par content fetch ; celles qui restent non exportables sont
 # signalées et ignorées, k3s les retéléchargera.
 set -euo pipefail
 
-cache=/var/cache/lab/k3s/images
+cache=/var/cache/lab/k3s/$(hostname)
 k3s=/usr/local/bin/k3s
 mountpoint -q /var/cache/lab || { echo "Cache local non monté sur $(hostname) : rien à sauvegarder"; exit 0; }
 mkdir -p "$cache"

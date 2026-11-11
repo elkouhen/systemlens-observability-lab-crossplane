@@ -1,0 +1,120 @@
+# PostgreSQLInstance -> objets CloudNativePG du cluster cible (provider-kubernetes) :
+# - Secrets basic-auth du propriétaire et de postgres, valeurs recopiées du Secret du hub
+#   (references.patchesFrom) ;
+# - Cluster CloudNativePG mono-instance, base créée par initdb, accès superutilisateur activé pour
+#   provider-sql (extensions, rôles, droits) ;
+# - Service NodePort vers l'instance primaire, pour le hub.
+# Les paramètres pg_stat_statements.* chargent l'extension (shared_preload_libraries) d'eux-mêmes.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: postgresqlinstance
+spec:
+  compositeTypeRef:
+    apiVersion: data.lab.io/v1alpha1
+    kind: PostgreSQLInstance
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource }}
+            {{- $name := $xr.metadata.name }}
+            {{- $ns := $xr.metadata.namespace }}
+            {{- $pc := dict "kind" "ClusterProviderConfig" "name" $xr.spec.cluster }}
+            {{- $pw := $xr.spec.passwordSecretRef }}
+            {{- range $user := list (dict "id" "owner" "username" $xr.spec.owner) (dict "id" "superuser" "username" "postgres") }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-{{ $user.id }}
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation (printf "secret-%s" $user.id) }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              references:
+                - patchesFrom: {apiVersion: v1, kind: Secret, namespace: {{ $ns }}, name: {{ $pw.name }}, fieldPath: data.{{ $pw.key }}}
+                  toFieldPath: data.password
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Secret
+                  type: kubernetes.io/basic-auth
+                  metadata:
+                    name: {{ $name }}-{{ $user.id }}
+                    namespace: {{ $ns }}
+                  data:
+                    username: {{ $user.username | b64enc }}
+            {{- end }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-cluster
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "cluster" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              # Prête quand CloudNativePG déclare l'instance prête (condition Ready).
+              readiness:
+                policy: DeriveFromObject
+              forProvider:
+                manifest:
+                  apiVersion: postgresql.cnpg.io/v1
+                  kind: Cluster
+                  metadata:
+                    name: {{ $name }}
+                    namespace: {{ $ns }}
+                  spec:
+                    instances: 1
+                    imageName: {{ $xr.spec.image }}
+                    enableSuperuserAccess: true
+                    superuserSecret: {name: {{ $name }}-superuser}
+                    bootstrap:
+                      initdb:
+                        database: {{ $xr.spec.database }}
+                        owner: {{ $xr.spec.owner }}
+                        secret: {name: {{ $name }}-owner}
+                    postgresql:
+                      parameters: {{ toJson ($xr.spec.parameters | default dict) }}
+                    storage:
+                      size: {{ $xr.spec.storage }}
+                    resources:
+                      requests: {cpu: 100m, memory: 256Mi}
+                      limits: {memory: {{ $xr.spec.memoryLimit }}}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-nodeport
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "nodeport" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Service
+                  metadata:
+                    name: {{ $name }}-nodeport
+                    namespace: {{ $ns }}
+                  spec:
+                    type: NodePort
+                    selector:
+                      cnpg.io/cluster: {{ $name }}
+                      cnpg.io/instanceRole: primary
+                    ports:
+                      - {name: postgres, port: 5432, targetPort: 5432, nodePort: {{ $xr.spec.nodePort }}}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

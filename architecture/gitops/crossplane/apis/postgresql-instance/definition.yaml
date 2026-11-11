@@ -1,0 +1,61 @@
+# Une instance PostgreSQL dans un cluster cible (CloudNativePG) : base, propriétaire, superutilisateur
+# postgres et accès du hub par NodePort (provider-sql). Déclarée par le groupe qui l'utilise, dans
+# le namespace du hub qui porte aussi le mot de passe (Secret SOPS du groupe) ; composée dans le
+# même namespace du cluster cible (composition.yaml).
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: postgresqlinstances.data.lab.io
+spec:
+  scope: Namespaced
+  group: data.lab.io
+  names:
+    kind: PostgreSQLInstance
+    plural: postgresqlinstances
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - {name: CLUSTER, type: string, jsonPath: .spec.cluster}
+        - {name: DATABASE, type: string, jsonPath: .spec.database}
+        - {name: NODEPORT, type: integer, jsonPath: .spec.nodePort}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [database, owner, passwordSecretRef, nodePort]
+              properties:
+                cluster:
+                  type: string
+                  default: k3s-01
+                  description: Cluster cible (ClusterProviderConfig de provider-kubernetes du même nom).
+                image:
+                  type: string
+                  default: ghcr.io/cloudnative-pg/postgresql:17.11
+                database: {type: string}
+                owner: {type: string}
+                passwordSecretRef:
+                  type: object
+                  description: >-
+                    Secret du hub (namespace de l'instance) : mot de passe du propriétaire et du
+                    superutilisateur postgres, recopié dans le cluster cible.
+                  required: [name, key]
+                  properties:
+                    name: {type: string}
+                    key: {type: string}
+                nodePort:
+                  type: integer
+                  description: Port d'accès depuis le hub et les VM (adresse du nœud du cluster cible).
+                storage:
+                  type: string
+                  default: 2Gi
+                memoryLimit:
+                  type: string
+                  default: 512Mi
+                parameters:
+                  type: object
+                  description: Paramètres PostgreSQL (postgresql.parameters de CloudNativePG).
+                  additionalProperties: {type: string}

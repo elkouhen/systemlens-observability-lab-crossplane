@@ -1,5 +1,5 @@
 # Crossplane lui-même : chart Helm officiel, installé et maintenu par Argo CD (Application imbriquée
-# dans le groupe crossplane). Le ConfigMap ca-bundle (bundle CA de k3s-01, racine du proxy TLS
+# dans le groupe crossplane). Le ConfigMap ca-bundle (bundle CA du hub tools-01, racine du proxy TLS
 # d'entreprise comprise) est déposé par make crossplane-ca-apply : il dépend du poste.
 apiVersion: argoproj.io/v1alpha1
 kind: Application

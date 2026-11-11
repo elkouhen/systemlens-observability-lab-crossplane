@@ -1,0 +1,11 @@
+# Opérateurs des clusters cibles (Application Argo CD operators) : une Application imbriquée par
+# chart Helm, synchronisée par Argo CD directement dans son cluster cible (destination.name, cluster
+# enregistré par make clusters-register). Les instances sont composées par Crossplane depuis le hub
+# (API PostgreSQLInstance, MongoDBInstance, KafkaCluster, ObservabilityStack).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - cloudnative-pg.yaml
+  - strimzi.yaml
+  - mongodb.yaml
+  - eck.yaml

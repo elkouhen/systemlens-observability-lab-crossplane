@@ -1,0 +1,22 @@
+# Clusters cibles du hub pour provider-kubernetes : une ClusterProviderConfig par cluster, du nom du
+# cluster (spec.cluster des API du lab). Le kubeconfig de chaque cluster (Secret
+# crossplane-system/cluster-<nom>) est créé à l'amorçage par make clusters-register : k3s le
+# régénère à chaque installation, il n'est donc pas versionné (voir gitops/argocd/README.md).
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: ClusterProviderConfig
+metadata:
+  name: k3s-01
+spec:
+  credentials:
+    source: Secret
+    secretRef: {namespace: crossplane-system, name: cluster-k3s-01, key: kubeconfig}
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: ClusterProviderConfig
+metadata:
+  name: elk-01
+spec:
+  credentials:
+    source: Secret
+    secretRef: {namespace: crossplane-system, name: cluster-elk-01, key: kubeconfig}

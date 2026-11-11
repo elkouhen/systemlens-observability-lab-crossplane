@@ -1,4 +1,4 @@
-# Accès de Crossplane à elk-01 : Terraform elastic/elasticstack (Elasticsearch, Kibana, Fleet) et
+# Accès de Crossplane (hub) à elk-01 (ECK, Services LoadBalancer 9200 et 5601) : Terraform elastic/elasticstack (Elasticsearch, Kibana, Fleet) et
 # provider-http (API Kibana des dashboards). Secrets elastic-terraform et kibana-auth : secrets/.
 ---
 # Elasticsearch, Kibana et Fleet (elk-01) via Terraform ; état stocké dans des Secrets

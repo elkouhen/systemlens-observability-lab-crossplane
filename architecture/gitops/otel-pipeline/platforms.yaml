@@ -1,6 +1,6 @@
 # Registre des plateformes OTel (ADR-015, ADR-017, ADR-020) : source unique.
 # - Crossplane en déduit les topics otel-{logs,metrics,traces}-<platform>-<environment> et les ACL
-#   d'écriture de chaque publisher (kafka-otel/composition.yaml).
+#   d'écriture de chaque publisher (gitops/crossplane/apis/otel-platform/composition.yaml).
 # - Ansible le relit (group_vars/all.yml : otel_platforms) pour le routage de l'Edge.
 # Ajouter une plateforme : ajouter un document ici puis `make crossplane-platforms-apply`.
 ---
@@ -29,7 +29,7 @@ metadata:
 spec:
   platform: elk
   environment: homologation
-  publishers: [otel-edge-01, otel-backend-01]
+  publishers: [otel-edge-01]
 ---
 apiVersion: observability.lab.io/v1alpha1
 kind: OtelPlatform

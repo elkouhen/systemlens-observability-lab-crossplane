@@ -1,0 +1,222 @@
+# Collecteur backend OTel (ADR-005, ADR-013, ADR-018, ADR-019) : lit les topics otel-* du Kafka OTel
+# (listener interne, compte SCRAM otel_consumer) et indexe en OTel natif dans Elasticsearch
+# (elk-01, clé API otel-collector-writer recopiée depuis le hub). Reprend la configuration du
+# collecteur de l'ancienne VM otel-backend-01 ; sa file persistante est sur un volume local.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-backend-config
+  namespace: elastic-stack
+data:
+  backend.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13134
+      file_storage:
+        directory: /var/lib/otel
+    receivers:
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/kafkareceiver
+      kafka/otlp:
+        brokers: ["otel-kafka-kafka-bootstrap.elastic-stack.svc:9092"]
+        # Pas de protocol_version (ADR-013) : franz-go négocie la version de chaque requête.
+        group_id: otel-backend
+        # Un topic par plateforme et environnement, otel-<signal>-<plateforme>-<environnement>
+        # (ADR-015), découvert par expression régulière sans redémarrage.
+        traces:
+          topics: ["^otel-traces-[a-z0-9_]+-[a-z0-9_]+$"]
+        metrics:
+          topics: ["^otel-metrics-[a-z0-9_]+-[a-z0-9_]+$"]
+        logs:
+          topics: ["^otel-logs-[a-z0-9_]+-[a-z0-9_]+$"]
+        initial_offset: earliest
+        metadata:
+          refresh_interval: 1m
+        # Garantie de livraison (ADR-013) : offset commité après écriture dans la file persistante.
+        message_marking:
+          after: true
+          on_error: false
+          on_permanent_error: true
+        error_backoff:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 30s
+          max_elapsed_time: 5m
+        auth:
+          sasl:
+            username: otel_consumer
+            password: "${env:OTEL_KAFKA_CONSUMER_PASSWORD}"
+            mechanism: SCRAM-SHA-512
+      otlp/internal:
+        protocols:
+          grpc:
+            endpoint: 127.0.0.1:4322
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 400
+        spike_limit_mib: 100
+      # L'exporteur Elasticsearch n'indexe pas les histogrammes cumulatifs.
+      cumulative_to_delta:
+        include:
+          metric_types:
+            - histogram
+      # Seuls les pipelines de télémétrie interne passent par batch (ADR-013).
+      batch:
+        timeout: 1s
+        send_batch_size: 512
+      # Valeurs NaN et ±Inf rejetées par l'exporteur Elasticsearch.
+      filter/invalid-double:
+        error_mode: ignore
+        metric_conditions:
+          - (metric.type == METRIC_DATA_TYPE_GAUGE or metric.type == METRIC_DATA_TYPE_SUM) and datapoint.value_double - datapoint.value_double != 0.0
+      # Data stream par plateforme (ADR-019, ADR-020) : namespace <plateforme>_<environnement>.
+      transform/data-stream-namespace:
+        error_mode: ignore
+        trace_statements:
+          - &data_stream_namespace
+            context: resource
+            conditions:
+              - resource.attributes["platform.id"] != nil and resource.attributes["deployment.environment.name"] != nil
+            statements:
+              - set(resource.attributes["data_stream.namespace"], Concat([resource.attributes["platform.id"], resource.attributes["deployment.environment.name"]], "_"))
+              - set(resource.attributes["deployment.environment"], resource.attributes["deployment.environment.name"])
+              - delete_key(resource.attributes, "otel.kafka.topic")
+        metric_statements:
+          - *data_stream_namespace
+        log_statements:
+          - *data_stream_namespace
+      # Enrichissement des traces pour l'UI APM (ADR-018).
+      elasticapm: {}
+    connectors:
+      elasticapm: {}
+    exporters:
+      # Documentation : https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/elasticsearchexporter
+      elasticsearch/otel:
+        endpoints: ["http://192.168.33.40:9200"]
+        api_key: ${env:ELASTICSEARCH_API_KEY}
+        mapping:
+          mode: otel
+        sending_queue:
+          enabled: true
+          queue_size: 1000
+          storage: file_storage
+        retry:
+          enabled: true
+          max_retries: 10
+          initial_interval: 1s
+          max_interval: 1m
+          retry_on_status: [429]
+    service:
+      extensions: [health_check, file_storage]
+      telemetry:
+        resource:
+          attributes:
+            - {name: service.name, value: otel-backend}
+            - {name: service.version, value: 9.5.4}
+            - {name: service.instance.id, value: "${env:K8S_POD_NAME}"}
+            - {name: host.name, value: "${env:K8S_NODE_NAME}"}
+            - {name: platform.id, value: elk}
+            - {name: deployment.environment.name, value: homologation}
+            - {name: data_stream.dataset, value: collectortelemetry}
+        metrics:
+          level: normal
+          readers:
+            - periodic:
+                interval: 30000
+                exporter:
+                  otlp:
+                    protocol: grpc
+                    endpoint: http://127.0.0.1:4322
+        logs:
+          processors:
+            - batch:
+                exporter:
+                  otlp:
+                    protocol: grpc
+                    endpoint: http://127.0.0.1:4322
+      pipelines:
+        metrics/internal-telemetry:
+          receivers: [otlp/internal]
+          processors: [memory_limiter, transform/data-stream-namespace, cumulative_to_delta, batch]
+          exporters: [elasticsearch/otel]
+        logs/internal-telemetry:
+          receivers: [otlp/internal]
+          processors: [memory_limiter, transform/data-stream-namespace, batch]
+          exporters: [elasticsearch/otel]
+        traces:
+          receivers: [kafka/otlp]
+          processors: [memory_limiter, transform/data-stream-namespace, elasticapm]
+          exporters: [elasticapm, elasticsearch/otel]
+        metrics/aggregated-otel-metrics:
+          receivers: [elasticapm]
+          exporters: [elasticsearch/otel]
+        metrics:
+          receivers: [kafka/otlp]
+          processors: [memory_limiter, filter/invalid-double, transform/data-stream-namespace, cumulative_to_delta]
+          exporters: [elasticsearch/otel]
+        logs:
+          receivers: [kafka/otlp]
+          processors: [memory_limiter, transform/data-stream-namespace]
+          exporters: [elasticsearch/otel]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: otel-backend-queue
+  namespace: elastic-stack
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-backend
+  namespace: elastic-stack
+spec:
+  replicas: 1
+  # File persistante sur un volume ReadWriteOnce : un seul pod à la fois.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: otel-backend}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: otel-backend}
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: collector
+          image: docker.elastic.co/elastic-agent/elastic-otel-collector:9.5.4
+          args: ["--config=/etc/otel/backend.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            seccompProfile: {type: RuntimeDefault}
+          env:
+            - name: K8S_POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: K8S_NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            - name: ELASTICSEARCH_API_KEY
+              valueFrom: {secretKeyRef: {name: otel-elasticsearch-credentials, key: api-key}}
+            - name: OTEL_KAFKA_CONSUMER_PASSWORD
+              valueFrom: {secretKeyRef: {name: otel-collector-credentials, key: kafka-consumer-password}}
+          ports:
+            - {name: health, containerPort: 13134}
+          volumeMounts:
+            - {name: config, mountPath: /etc/otel, readOnly: true}
+            - {name: queue, mountPath: /var/lib/otel}
+          readinessProbe: {httpGet: {path: /, port: health}}
+          livenessProbe: {httpGet: {path: /, port: health}}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: config
+          configMap: {name: otel-backend-config}
+        - name: queue
+          persistentVolumeClaim: {claimName: otel-backend-queue}

@@ -1,8 +1,12 @@
-# Socle Crossplane synchronisé par Argo CD (Application crossplane) :
+# Socle Crossplane du hub tools-01, synchronisé par Argo CD (Application crossplane) :
 #   helm-release.yaml   : Crossplane (chart Helm officiel), Application Argo CD imbriquée ;
-#   install/            : cache des paquets, providers et fonctions, runtime et RBAC des providers ;
+#   install/            : cache des paquets, providers et fonctions, runtime et RBAC des providers,
+#                         clusters cibles de provider-kubernetes (clusters.yaml) ;
 #   apis/application    : Application, un service Java instrumenté (Deployment, Service, agent OTel) ;
-#   apis/otel-platform  : OtelPlatform, une plateforme OTel (topics Kafka, ACL des publishers).
+#   apis/otel-platform  : OtelPlatform, une plateforme OTel (topics Kafka, ACL des publishers) ;
+#   apis/postgresql-instance, mongodb-instance, kafka-cluster : back-ends des clusters cibles
+#                         (CloudNativePG, MongoDB Controllers for Kubernetes, Strimzi) ;
+#   apis/observability-stack : Elasticsearch, Kibana et Fleet Server (ECK).
 # Les ressources dont la CRD n'existe pas encore (Provider avant Crossplane, XR avant leur XRD)
 # passent au retry suivant de l'Application.
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -12,7 +16,16 @@ resources:
   - install/package-cache.yaml
   - install/packages.yaml
   - install/runtime.yaml
+  - install/clusters.yaml
   - apis/application/definition.yaml
   - apis/application/composition.yaml
   - apis/otel-platform/definition.yaml
   - apis/otel-platform/composition.yaml
+  - apis/postgresql-instance/definition.yaml
+  - apis/postgresql-instance/composition.yaml
+  - apis/mongodb-instance/definition.yaml
+  - apis/mongodb-instance/composition.yaml
+  - apis/kafka-cluster/definition.yaml
+  - apis/kafka-cluster/composition.yaml
+  - apis/observability-stack/definition.yaml
+  - apis/observability-stack/composition.yaml

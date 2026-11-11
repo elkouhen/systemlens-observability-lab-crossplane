@@ -1,9 +1,9 @@
-# Supervision MongoDB de supermarket-middleware-01, déclarée (provider Terraform Kaginari/mongodb).
-# Remplace la création de otel_monitor par podman exec mongosh dans le rôle supermarket_middleware.
-# Le receiver mongodb des agents EDOT (elastic-agent.yml.j2) se connecte avec ce compte.
+# Supervision MongoDB (instance supermarket-mongodb de k3s-01, databases.yaml), déclarée (provider
+# Terraform Kaginari/mongodb) : compte otel_monitor du receiver mongodb du collecteur
+# otel-middleware (gitops/otel-pipeline/k3s-01).
 ---
-# MongoDB (supermarket-middleware-01) via Terraform : compte crossplane_admin amorcé par Ansible
-# (MongoDB tourne sans --auth, mais le provider s'authentifie toujours) ; état dans des Secrets.
+# MongoDB par le NodePort 30017 de k3s-01 via Terraform : compte crossplane_admin déclaré par
+# l'instance (MongoDBInstance) ; état Terraform dans des Secrets du hub.
 apiVersion: tf.m.upbound.io/v1beta1
 kind: ClusterProviderConfig
 metadata:
@@ -37,8 +37,8 @@ spec:
       sensitive = true
     }
     provider "mongodb" {
-      host          = "192.168.33.10"
-      port          = "27017"
+      host          = "192.168.33.50"
+      port          = "30017"
       username      = "crossplane_admin"
       password      = var.mongodb_admin_password
       auth_database = "admin"

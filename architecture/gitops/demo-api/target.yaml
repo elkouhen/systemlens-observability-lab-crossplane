@@ -1,0 +1,32 @@
+# Objets du groupe dans le cluster cible k3s-01, hors API : le namespace des services et la clé
+# Bearer de l'Edge lue par leurs pods (valeurs recopiées du Secret SOPS du hub).
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: namespace
+  namespace: h0tl-demo-app
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: k3s-01}
+  # Comme sur le hub, le namespace n'est jamais supprimé avec l'objet (pas de politique Delete).
+  managementPolicies: [Observe, Create, Update, LateInitialize]
+  forProvider:
+    manifest:
+      apiVersion: v1
+      kind: Namespace
+      metadata: {name: h0tl-demo-app}
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: otel-edge-client-keys
+  namespace: h0tl-demo-app
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: k3s-01}
+  references:
+    - patchesFrom: {apiVersion: v1, kind: Secret, namespace: h0tl-demo-app, name: otel-edge-client-keys, fieldPath: data.otel-kubernetes-cluster}
+  forProvider:
+    manifest:
+      apiVersion: v1
+      kind: Secret
+      metadata: {name: otel-edge-client-keys, namespace: h0tl-demo-app}

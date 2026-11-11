@@ -1,7 +1,6 @@
-# Topics métier du Kafka de supermarket-middleware-01 (remplacent le Job otel-telemetry-topics
-# et la réconciliation de rétention de ansible/retention.yml).
+# Topics métier du Kafka supermarket-kafka de k3s-01 (databases.yaml).
 ---
-# Kafka métier (supermarket-middleware-01) : PLAINTEXT sans authentification, comme dans le lab
+# Kafka métier par le NodePort 31192 de k3s-01 : PLAINTEXT sans authentification, comme dans le lab
 apiVersion: kafka.m.crossplane.io/v1alpha1
 kind: ClusterProviderConfig
 metadata:

@@ -1,0 +1,20 @@
+# Manifests du groupe synchronisés par Argo CD directement dans k3s-01 (k3s-01/) : namespace,
+# Service vers le Collecteur Edge et collecteurs OTel.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-pipeline-k3s-01
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/elkouhen/systemlens-observability-lab-crossplane.git
+    targetRevision: main
+    path: architecture/gitops/otel-pipeline/k3s-01
+  destination: {name: k3s-01}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [ServerSideApply=true]
+    retry:
+      limit: 30
+      backoff: {duration: 10s, factor: 2, maxDuration: 3m}

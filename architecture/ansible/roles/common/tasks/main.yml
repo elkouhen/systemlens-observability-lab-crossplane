@@ -196,7 +196,6 @@
     - /etc/containers/systemd
     - /usr/share/containers/systemd
     - /var/lib/observability
-    - /var/lib/observability/otel-backend
     - /var/cache/observability
     - /opt/observability
 
@@ -205,8 +204,7 @@
     path: /etc/hosts
     marker: '# {mark} lab OBSERVABILITY HOSTS'
     block: |
-      {{ supermarket_middleware_ip }} supermarket-middleware-01
-      {{ otel_backend_ip }} otel-backend-01
+      {{ tools_ip }} tools-01
       {{ otel_edge_ip }} otel-edge-01
       {{ elk_ip }} elk-01
       {{ k3s_ip }} k3s-01

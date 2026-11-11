@@ -1,0 +1,17 @@
+# Plateforme Elastic de elk-01 (ECK), déclarée comme instance de l'API ObservabilityStack et composée
+# depuis le hub : Elasticsearch, Kibana et Fleet Server 9.5.4 (licence Basic), en HTTP sur
+# 192.168.33.40:9200, 5601 et 8220 comme auparavant. Le mot de passe du compte elastic est celui du
+# Secret SOPS elasticsearch-es-elastic-user (secrets/). Sa configuration (ILM, pipelines, Fleet,
+# Kibana) reste déclarée par Terraform et provider-http dans les autres fichiers du groupe.
+apiVersion: observability.lab.io/v1alpha1
+kind: ObservabilityStack
+metadata:
+  name: elastic
+  namespace: elastic-stack
+spec:
+  cluster: elk-01
+  version: 9.5.4
+  elasticPasswordSecretRef: {name: elasticsearch-es-elastic-user, key: elastic}
+  kibanaPublicBaseUrl: http://kibana.observability.test:5601
+  # Policy de Fleet Server créée par Terraform (fleet.yaml) : ECK attend qu'elle existe.
+  fleetServerPolicyId: eck-fleet-server

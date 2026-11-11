@@ -1,0 +1,167 @@
+# KafkaCluster -> objets Strimzi du cluster cible (provider-kubernetes) : Kafka, KafkaNodePool
+# (un nœud contrôleur et broker, stockage persistant) et, en SCRAM, l'administrateur KafkaUser et son
+# mot de passe recopié du Secret du hub.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: kafkacluster
+spec:
+  compositeTypeRef:
+    apiVersion: data.lab.io/v1alpha1
+    kind: KafkaCluster
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource }}
+            {{- $name := $xr.metadata.name }}
+            {{- $ns := $xr.metadata.namespace }}
+            {{- $pc := dict "kind" "ClusterProviderConfig" "name" $xr.spec.cluster }}
+            {{- $scram := eq $xr.spec.authentication "scram" }}
+            {{- $auth := dict }}
+            {{- if $scram }}{{ $auth = dict "type" "scram-sha-512" }}{{ end }}
+            {{- $internal := dict "name" "internal" "port" 9092 "type" "internal" "tls" false }}
+            {{- $external := dict "name" "external" "port" 9094 "type" "nodeport" "tls" false
+                  "configuration" (dict
+                    "bootstrap" (dict "nodePort" $xr.spec.externalNodePort)
+                    "brokers" (list (dict "broker" 0 "nodePort" (add $xr.spec.externalNodePort 1) "advertisedHost" $xr.spec.advertisedHost))) }}
+            {{- if $scram }}
+            {{- $_ := set $internal "authentication" $auth }}
+            {{- $_ := set $external "authentication" $auth }}
+            {{- end }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-nodepool
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "nodepool" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              forProvider:
+                manifest:
+                  apiVersion: kafka.strimzi.io/v1
+                  kind: KafkaNodePool
+                  metadata:
+                    name: dual
+                    namespace: {{ $ns }}
+                    labels: {strimzi.io/cluster: {{ $name }}}
+                  spec:
+                    replicas: 1
+                    roles: [controller, broker]
+                    storage:
+                      type: jbod
+                      volumes:
+                        - {id: 0, type: persistent-claim, size: {{ $xr.spec.storage }}, deleteClaim: true, kraftMetadata: shared}
+                    jvmOptions: {"-Xms": {{ $xr.spec.heap }}, "-Xmx": {{ $xr.spec.heap }}}
+                    resources:
+                      requests: {cpu: 100m, memory: 512Mi}
+                      limits: {memory: 768Mi}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-kafka
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "kafka" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              # Prête quand Strimzi déclare le cluster prêt (condition Ready).
+              readiness:
+                policy: DeriveFromObject
+              forProvider:
+                manifest:
+                  apiVersion: kafka.strimzi.io/v1
+                  kind: Kafka
+                  metadata:
+                    name: {{ $name }}
+                    namespace: {{ $ns }}
+                  spec:
+                    kafka:
+                      version: {{ $xr.spec.version }}
+                      listeners: {{ toJson (list $internal $external) }}
+                      {{- if $scram }}
+                      authorization:
+                        type: simple
+                        superUsers: [{{ $xr.spec.adminUser.name }}]
+                      {{- end }}
+                      config: {{ toJson (merge (dict
+                          "offsets.topic.replication.factor" 1
+                          "transaction.state.log.replication.factor" 1
+                          "transaction.state.log.min.isr" 1
+                          "default.replication.factor" 1
+                          "min.insync.replicas" 1
+                          "group.initial.rebalance.delay.ms" 0) ($xr.spec.config | default dict)) }}
+                    {{- if $scram }}
+                    entityOperator:
+                      userOperator:
+                        jvmOptions: {"-Xms": 64m, "-Xmx": 128m}
+                        resources:
+                          requests: {cpu: 50m, memory: 192Mi}
+                          limits: {memory: 256Mi}
+                      template:
+                        userOperatorContainer:
+                          env:
+                            - {name: STRIMZI_IGNORED_USERS_PATTERN, value: {{ $xr.spec.ignoredUsersPattern | quote }}}
+                    {{- end }}
+            {{- if $scram }}
+            {{- $admin := $xr.spec.adminUser }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-admin-password
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "admin-password" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              references:
+                - patchesFrom: {apiVersion: v1, kind: Secret, namespace: {{ $ns }}, name: {{ $admin.passwordSecretRef.name }}, fieldPath: data.{{ $admin.passwordSecretRef.key }}}
+                  toFieldPath: data.password
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: {{ $name }}-admin-password
+                    namespace: {{ $ns }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-admin
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "admin" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              readiness:
+                policy: DeriveFromObject
+              forProvider:
+                manifest:
+                  apiVersion: kafka.strimzi.io/v1
+                  kind: KafkaUser
+                  metadata:
+                    name: {{ $admin.name }}
+                    namespace: {{ $ns }}
+                    labels: {strimzi.io/cluster: {{ $name }}}
+                  spec:
+                    authentication:
+                      type: scram-sha-512
+                      password:
+                        valueFrom:
+                          secretKeyRef: {name: {{ $name }}-admin-password, key: password}
+            {{- end }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

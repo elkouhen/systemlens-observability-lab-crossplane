@@ -1,6 +1,6 @@
 # Une application du lab : un service Java instrumenté par l'agent OTel, exposé dans son namespace.
 # La Composition (composition.yaml) en produit le Deployment, le Service et la configuration de
-# l'agent OTel. Les instances sont déclarées avec chaque application
+# l'agent OTel dans le cluster cible (spec.cluster, k3s-01 par défaut). Les instances sont déclarées avec chaque application
 # (architecture/gitops/<groupe>/application.yaml) et synchronisées par Argo CD ; Kustomize y
 # injecte la configuration de l'agent (architecture/gitops/<groupe>/kustomization.yaml).
 apiVersion: apiextensions.crossplane.io/v2
@@ -34,6 +34,10 @@ spec:
                   properties:
                     name: {type: string}
                     tag: {type: string}
+                cluster:
+                  type: string
+                  default: k3s-01
+                  description: Cluster cible (ClusterProviderConfig de provider-kubernetes du même nom).
                 port:
                   type: integer
                   description: Port HTTP du conteneur, repris par le Service.

@@ -1,7 +1,9 @@
-# Supervision PostgreSQL de supermarket-middleware-01 (remplace les « podman exec psql » du rôle
-# supermarket_middleware) : pg_stat_statements et compte otel du receiver PostgreSQL de l'agent EDOT.
+# Supervision PostgreSQL (instance supermarket-postgresql de k3s-01, databases.yaml) :
+# pg_stat_statements et compte otel du receiver PostgreSQL du collecteur otel-middleware
+# (gitops/otel-pipeline/k3s-01).
 ---
-# Accès administrateur (compte observability, Secret postgresql-admin chiffré dans secrets/).
+# Accès superutilisateur postgres par le NodePort 30432 de k3s-01 (Secret postgresql-admin chiffré
+# dans secrets/).
 apiVersion: postgresql.sql.m.crossplane.io/v1alpha1
 kind: ClusterProviderConfig
 metadata:

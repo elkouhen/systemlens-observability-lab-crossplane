@@ -1,0 +1,75 @@
+# Un cluster Kafka KRaft d'un nœud dans un cluster cible (Strimzi) : listener interne pour les
+# clients du cluster et listener externe NodePort, annoncé sur l'adresse du nœud, pour le hub
+# (provider-kafka) et les VM (Collecteur Edge). Avec authentication: scram, les deux listeners
+# exigent SCRAM-SHA-512, les ACL sont actives et l'administrateur (adminUser, super-utilisateur) est
+# créé par l'opérateur d'utilisateurs de Strimzi ; les autres comptes et leurs ACL restent gérés par
+# provider-kafka (ignoredUsersPattern).
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: kafkaclusters.data.lab.io
+spec:
+  scope: Namespaced
+  group: data.lab.io
+  names:
+    kind: KafkaCluster
+    plural: kafkaclusters
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - {name: CLUSTER, type: string, jsonPath: .spec.cluster}
+        - {name: AUTH, type: string, jsonPath: .spec.authentication}
+        - {name: NODEPORT, type: integer, jsonPath: .spec.externalNodePort}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [externalNodePort, advertisedHost]
+              properties:
+                cluster:
+                  type: string
+                  default: k3s-01
+                  description: Cluster cible (ClusterProviderConfig de provider-kubernetes du même nom).
+                version:
+                  type: string
+                  default: 4.3.1
+                authentication:
+                  type: string
+                  enum: [none, scram]
+                  default: none
+                adminUser:
+                  type: object
+                  description: Administrateur SCRAM (authentication scram), mot de passe lu dans un Secret du hub.
+                  required: [name, passwordSecretRef]
+                  properties:
+                    name: {type: string}
+                    passwordSecretRef:
+                      type: object
+                      required: [name, key]
+                      properties:
+                        name: {type: string}
+                        key: {type: string}
+                ignoredUsersPattern:
+                  type: string
+                  default: "^otel_"
+                  description: Comptes laissés à provider-kafka par l'opérateur d'utilisateurs de Strimzi.
+                externalNodePort:
+                  type: integer
+                  description: NodePort d'amorçage du listener externe ; celui du broker est le suivant.
+                advertisedHost:
+                  type: string
+                  description: Adresse du nœud annoncée aux clients du listener externe.
+                storage:
+                  type: string
+                  default: 5Gi
+                heap:
+                  type: string
+                  default: 256m
+                config:
+                  type: object
+                  description: Configuration des brokers (rétention, création automatique des topics…).
+                  x-kubernetes-preserve-unknown-fields: true

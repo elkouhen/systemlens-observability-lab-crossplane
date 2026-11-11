@@ -1,0 +1,32 @@
+# MongoDB Controllers for Kubernetes 1.15.0 (ressource MongoDBCommunity), dans k3s-01 : instances
+# MongoDBInstance, tous namespaces. Images arm64 disponibles (mongodb-community-server ubi9).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mongodb-k3s-01
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://mongodb.github.io/helm-charts
+    chart: mongodb-kubernetes
+    targetRevision: 1.15.0
+    helm:
+      valuesObject:
+        operator:
+          watchNamespace: "*"
+          watchedResources: [mongodbcommunity]
+          telemetry: {enabled: false, send: {enabled: false}}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 384Mi}
+        community:
+          mongodb: {imageType: ubi9}
+        registry: {pullPolicy: IfNotPresent}
+  destination: {name: k3s-01, namespace: mongodb}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+    retry:
+      limit: 30
+      backoff: {duration: 10s, factor: 2, maxDuration: 3m}

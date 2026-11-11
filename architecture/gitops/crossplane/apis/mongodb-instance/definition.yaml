@@ -1,0 +1,73 @@
+# Une instance MongoDB dans un cluster cible (MongoDB Controllers for Kubernetes, ressource
+# MongoDBCommunity) : replica set d'un membre, authentification SCRAM, comptes déclarés et accès du
+# hub par NodePort (Terraform Kaginari/mongodb). Une seule instance par namespace : le compte de
+# service des pods (mongodb-kubernetes-appdb) est composé avec elle.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: mongodbinstances.data.lab.io
+spec:
+  scope: Namespaced
+  group: data.lab.io
+  names:
+    kind: MongoDBInstance
+    plural: mongodbinstances
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - {name: CLUSTER, type: string, jsonPath: .spec.cluster}
+        - {name: VERSION, type: string, jsonPath: .spec.version}
+        - {name: NODEPORT, type: integer, jsonPath: .spec.nodePort}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [users, nodePort]
+              properties:
+                cluster:
+                  type: string
+                  default: k3s-01
+                  description: Cluster cible (ClusterProviderConfig de provider-kubernetes du même nom).
+                version:
+                  type: string
+                  default: 8.0.26
+                nodePort:
+                  type: integer
+                  description: Port d'accès depuis le hub (connexion directe au membre unique).
+                storage:
+                  type: string
+                  default: 2Gi
+                wiredTigerCacheSizeGB:
+                  type: number
+                  default: 0.25
+                users:
+                  type: array
+                  description: >-
+                    Comptes créés par l'opérateur. Le mot de passe est lu dans un Secret du hub
+                    (namespace de l'instance) et recopié dans le cluster cible ; la chaîne de connexion
+                    est publiée dans le Secret <instance>-<compte> du cluster cible
+                    (clé connectionString.standard).
+                  items:
+                    type: object
+                    required: [name, db, roles, passwordSecretRef]
+                    properties:
+                      name: {type: string}
+                      db: {type: string}
+                      roles:
+                        type: array
+                        items:
+                          type: object
+                          required: [name, db]
+                          properties:
+                            name: {type: string}
+                            db: {type: string}
+                      passwordSecretRef:
+                        type: object
+                        required: [name, key]
+                        properties:
+                          name: {type: string}
+                          key: {type: string}

@@ -1,0 +1,65 @@
+# Une plateforme Elastic dans un cluster cible (ECK) : Elasticsearch mono-nœud, Kibana et Fleet
+# Server, en HTTP, exposés par des Services LoadBalancer sur les ports 9200, 5601 et 8220 du nœud.
+# Le mot de passe du compte elastic est lu dans un Secret du hub (namespace de la plateforme).
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: observabilitystacks.observability.lab.io
+spec:
+  scope: Namespaced
+  group: observability.lab.io
+  names:
+    kind: ObservabilityStack
+    plural: observabilitystacks
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - {name: CLUSTER, type: string, jsonPath: .spec.cluster}
+        - {name: VERSION, type: string, jsonPath: .spec.version}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [version, elasticPasswordSecretRef, kibanaPublicBaseUrl, fleetServerPolicyId]
+              properties:
+                cluster:
+                  type: string
+                  default: elk-01
+                  description: Cluster cible (ClusterProviderConfig de provider-kubernetes du même nom).
+                version: {type: string}
+                elasticPasswordSecretRef:
+                  type: object
+                  description: Secret du hub portant le mot de passe du compte elastic (superuser).
+                  required: [name, key]
+                  properties:
+                    name: {type: string}
+                    key: {type: string}
+                elasticsearch:
+                  type: object
+                  default: {}
+                  properties:
+                    heap: {type: string, default: 768m}
+                    memoryLimit: {type: string, default: 1536Mi}
+                    storage: {type: string, default: 10Gi}
+                kibana:
+                  type: object
+                  default: {}
+                  properties:
+                    memoryLimit: {type: string, default: 1Gi}
+                kibanaPublicBaseUrl: {type: string}
+                fleetServerPolicyId:
+                  type: string
+                  description: Policy Fleet de Fleet Server (créée par Terraform, gitops/elastic/fleet.yaml).
+                fleetUrl:
+                  type: string
+                  default: http://fleet.observability.test:8220
+                caBundleHostPath:
+                  type: string
+                  default: /etc/ssl/certs/ca-certificates.crt
+                  description: >-
+                    Bundle CA du nœud (racine du proxy TLS d'entreprise comprise), lu par Kibana pour
+                    joindre le registre des packages Fleet.

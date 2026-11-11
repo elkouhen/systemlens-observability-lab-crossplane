@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - secrets-app.yaml
   - namespace.yaml
+  - target.yaml
   - application.yaml
 configMapGenerator:
   # Configuration de l'agent Java OTel (otel-agent.yaml, relue par make trace-context-verify),

@@ -1,4 +1,4 @@
-# Socle commun des 5 VM Lima du lab : image Ubuntu 24.04, réseau partagé et IP privée fixe.
+# Socle commun des 4 VM Lima du lab : image Ubuntu 24.04, réseau partagé et IP privée fixe.
 # Inclus par chaque lima/<vm>.yaml ; seuls les rôles Ansible configurent ensuite les services.
 base: template:ubuntu-24.04
 vmType: vz
@@ -10,7 +10,7 @@ user:
 # L'IP fixe 192.168.33.x du lab est ajoutée en adresse secondaire par le provisionnement ci-dessous.
 networks:
   - lima: user-v2
-# Cache local des téléchargements, partagé par les 5 VM et conservé par `make vms-destroy`
+# Cache local des téléchargements, partagé par les 4 VM et conservé par `make vms-destroy`
 # (make cache-status, make cache-clean). Les rôles Ansible y lisent fichiers, paquets et images
 # avant de les télécharger, et y déposent ce qu'ils ont téléchargé (nom temporaire puis renommage).
 mountType: virtiofs

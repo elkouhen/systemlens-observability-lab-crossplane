@@ -1,0 +1,21 @@
+# Opérateurs des clusters cibles (charts Helm) : CloudNativePG, Strimzi et MongoDB dans k3s-01, ECK
+# dans elk-01.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: operators
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/elkouhen/systemlens-observability-lab-crossplane.git
+    targetRevision: main
+    path: architecture/gitops/operators
+  destination: {server: https://kubernetes.default.svc}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 30
+      backoff: {duration: 10s, factor: 2, maxDuration: 3m}

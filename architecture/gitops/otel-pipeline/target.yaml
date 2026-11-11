@@ -1,0 +1,51 @@
+# Secrets des collecteurs de k3s-01 (namespace elastic-stack), valeurs recopiées des Secrets du hub :
+# clés Bearer de l'Edge et comptes de supervision (SOPS, secrets/), clé API Elasticsearch du
+# collecteur backend (produite par Terraform, gitops/elastic/elasticsearch.yaml).
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: otel-edge-client-keys
+  namespace: elastic-stack
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: k3s-01}
+  references:
+    - patchesFrom: {apiVersion: v1, kind: Secret, namespace: elastic-stack, name: otel-edge-client-keys, fieldPath: data.otel-kubernetes}
+    - patchesFrom: {apiVersion: v1, kind: Secret, namespace: elastic-stack, name: otel-edge-client-keys, fieldPath: data.otel-kubernetes-cluster}
+  forProvider:
+    manifest:
+      apiVersion: v1
+      kind: Secret
+      metadata: {name: otel-edge-client-keys, namespace: elastic-stack}
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: otel-collector-credentials
+  namespace: elastic-stack
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: k3s-01}
+  references:
+    - patchesFrom: {apiVersion: v1, kind: Secret, namespace: elastic-stack, name: otel-collector-credentials, fieldPath: data.kafka-consumer-password}
+    - patchesFrom: {apiVersion: v1, kind: Secret, namespace: elastic-stack, name: otel-collector-credentials, fieldPath: data.postgresql-password}
+    - patchesFrom: {apiVersion: v1, kind: Secret, namespace: elastic-stack, name: otel-collector-credentials, fieldPath: data.mongodb-password}
+  forProvider:
+    manifest:
+      apiVersion: v1
+      kind: Secret
+      metadata: {name: otel-collector-credentials, namespace: elastic-stack}
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: otel-elasticsearch-credentials
+  namespace: elastic-stack
+spec:
+  providerConfigRef: {kind: ClusterProviderConfig, name: k3s-01}
+  references:
+    - patchesFrom: {apiVersion: v1, kind: Secret, namespace: elastic-stack, name: otel-elasticsearch-credentials, fieldPath: data.api-key}
+  forProvider:
+    manifest:
+      apiVersion: v1
+      kind: Secret
+      metadata: {name: otel-elasticsearch-credentials, namespace: elastic-stack}

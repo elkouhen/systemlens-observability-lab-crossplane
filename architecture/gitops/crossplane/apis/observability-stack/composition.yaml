@@ -1,0 +1,213 @@
+# ObservabilityStack -> objets ECK du cluster cible (provider-kubernetes) :
+# - Secret de fichier basic-auth du compte elastic (fileRealm d'ECK, qui ne génère alors pas de
+#   mot de passe), valeur recopiée du Secret du hub ;
+# - Elasticsearch, Kibana et Agent (Fleet Server, policy créée par Terraform) en HTTP, Services
+#   LoadBalancer (ServiceLB de k3s) sur 9200, 5601 et 8220 : mêmes points d'accès qu'auparavant.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: observabilitystack
+spec:
+  compositeTypeRef:
+    apiVersion: observability.lab.io/v1alpha1
+    kind: ObservabilityStack
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource }}
+            {{- $ns := $xr.metadata.namespace }}
+            {{- $pc := dict "kind" "ClusterProviderConfig" "name" $xr.spec.cluster }}
+            {{- $es := $xr.spec.elasticsearch }}
+            {{- $pw := $xr.spec.elasticPasswordSecretRef }}
+            {{- $noTLS := dict "tls" (dict "selfSignedCertificate" (dict "disabled" true)) }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: elastic-user
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "elastic-user" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              references:
+                - patchesFrom: {apiVersion: v1, kind: Secret, namespace: {{ $ns }}, name: {{ $pw.name }}, fieldPath: data.{{ $pw.key }}}
+                  toFieldPath: data.password
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Secret
+                  type: kubernetes.io/basic-auth
+                  metadata:
+                    name: elastic-user
+                    namespace: {{ $ns }}
+                  data:
+                    username: {{ "elastic" | b64enc }}
+                    roles: {{ "superuser" | b64enc }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: elasticsearch
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "elasticsearch" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              readiness:
+                policy: DeriveFromCelQuery
+                celQuery: object.?status.?health.orValue("") in ["green", "yellow"]
+              forProvider:
+                manifest:
+                  apiVersion: elasticsearch.k8s.elastic.co/v1
+                  kind: Elasticsearch
+                  metadata:
+                    name: elasticsearch
+                    namespace: {{ $ns }}
+                  spec:
+                    version: {{ $xr.spec.version }}
+                    auth:
+                      fileRealm:
+                        - secretName: elastic-user
+                    http:
+                      {{- toYaml $noTLS | nindent 22 }}
+                      service:
+                        spec:
+                          type: LoadBalancer
+                    nodeSets:
+                      - name: default
+                        count: 1
+                        config:
+                          node.store.allow_mmap: false
+                        podTemplate:
+                          spec:
+                            containers:
+                              - name: elasticsearch
+                                env:
+                                  - {name: ES_JAVA_OPTS, value: "-Xms{{ $es.heap }} -Xmx{{ $es.heap }}"}
+                                resources:
+                                  requests: {cpu: 200m, memory: {{ $es.memoryLimit }}}
+                                  limits: {memory: {{ $es.memoryLimit }}}
+                        volumeClaimTemplates:
+                          - metadata: {name: elasticsearch-data}
+                            spec:
+                              accessModes: [ReadWriteOnce]
+                              resources: {requests: {storage: {{ $es.storage }}}}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: kibana
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "kibana" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              readiness:
+                policy: DeriveFromCelQuery
+                celQuery: object.?status.?health.orValue("") == "green"
+              forProvider:
+                manifest:
+                  apiVersion: kibana.k8s.elastic.co/v1
+                  kind: Kibana
+                  metadata:
+                    name: kibana
+                    namespace: {{ $ns }}
+                  spec:
+                    version: {{ $xr.spec.version }}
+                    count: 1
+                    elasticsearchRef: {name: elasticsearch}
+                    http:
+                      {{- toYaml $noTLS | nindent 22 }}
+                      service:
+                        spec:
+                          type: LoadBalancer
+                    config:
+                      server.publicBaseUrl: {{ $xr.spec.kibanaPublicBaseUrl }}
+                      xpack.fleet.agents.enabled: true
+                      xpack.fleet.registryUrl: https://epr.elastic.co
+                      # Sortie Elasticsearch par défaut des agents Fleet (Fleet Server compris).
+                      xpack.fleet.outputs:
+                        - id: eck-default-output
+                          name: default
+                          type: elasticsearch
+                          is_default: true
+                          is_default_monitoring: true
+                          hosts: [http://elasticsearch-es-http.{{ $ns }}.svc:9200]
+                      telemetry.optIn: false
+                      telemetry.allowChangingOptInStatus: false
+                      logging:
+                        appenders:
+                          json: {type: console, layout: {type: json}}
+                        root: {appenders: [json], level: info}
+                      xpack.security.audit.enabled: true
+                      xpack.security.audit.appender: {type: console, layout: {type: json}}
+                      xpack.task_manager.monitored_stats_health_verbose_log.enabled: true
+                    podTemplate:
+                      spec:
+                        containers:
+                          - name: kibana
+                            env:
+                              - {name: NODE_OPTIONS, value: --max-old-space-size=768}
+                              # Proxy TLS d'entreprise : Node.js n'utilise pas le magasin du nœud.
+                              - {name: NODE_EXTRA_CA_CERTS, value: /etc/lab-ca/ca-certificates.crt}
+                            resources:
+                              requests: {cpu: 200m, memory: {{ $xr.spec.kibana.memoryLimit }}}
+                              limits: {memory: {{ $xr.spec.kibana.memoryLimit }}}
+                            volumeMounts:
+                              - {name: lab-ca, mountPath: /etc/lab-ca/ca-certificates.crt, readOnly: true}
+                        volumes:
+                          - name: lab-ca
+                            hostPath: {path: {{ $xr.spec.caBundleHostPath }}, type: File}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: fleet-server
+              namespace: {{ $ns }}
+              annotations:
+                {{ setResourceNameAnnotation "fleet-server" }}
+            spec:
+              providerConfigRef: {{ toJson $pc }}
+              readiness:
+                policy: DeriveFromCelQuery
+                celQuery: object.?status.?health.orValue("") == "green"
+              forProvider:
+                manifest:
+                  apiVersion: agent.k8s.elastic.co/v1alpha1
+                  kind: Agent
+                  metadata:
+                    name: fleet-server
+                    namespace: {{ $ns }}
+                  spec:
+                    version: {{ $xr.spec.version }}
+                    mode: fleet
+                    fleetServerEnabled: true
+                    policyID: {{ $xr.spec.fleetServerPolicyId }}
+                    kibanaRef: {name: kibana}
+                    elasticsearchRefs: [{name: elasticsearch}]
+                    http:
+                      {{- toYaml $noTLS | nindent 22 }}
+                      service:
+                        spec:
+                          type: LoadBalancer
+                    deployment:
+                      replicas: 1
+                      podTemplate:
+                        spec:
+                          containers:
+                            - name: agent
+                              resources:
+                                requests: {cpu: 100m, memory: 384Mi}
+                                limits: {memory: 512Mi}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

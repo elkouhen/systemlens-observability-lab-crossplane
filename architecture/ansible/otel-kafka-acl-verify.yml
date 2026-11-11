@@ -8,14 +8,19 @@
 #   - une écriture dans le topic d'une plateforme qui ne lui est pas
 #     attribuée est refusée, quand une telle plateforme existe.
 # Le broker refuse aussi la création automatique de topics.
+# Le Kafka OTel est le cluster Strimzi otel-kafka de k3s-01 : les outils Kafka
+# sont exécutés dans son pod (kubectl exec), avec l'administrateur otel-admin.
 # Prérequis : KAFKA_OTEL_PUBLISHER_PASSWORD (make otel-kafka-acl-verify).
 - name: Vérifier les ACL du Kafka OTel
-  hosts: otel_backend_nodes
+  hosts: apps_nodes
   become: true
   gather_facts: false
   vars:
-    otel_kafka_exec: [podman, exec, --env, KAFKA_OPTS=, observability-otel-kafka]
-    otel_kafka_admin: [--bootstrap-server, localhost:9092, --command-config, /opt/kafka/config/otel-kafka-client.properties]
+    otel_kafka_pod: otel-kafka-dual-0
+    otel_kafka_exec: [/usr/local/bin/k3s, kubectl, -n, elastic-stack, exec, -i, "{{ otel_kafka_pod }}", -c, kafka, --]
+    otel_kafka_admin: [--bootstrap-server, localhost:9092, --command-config, /tmp/otel-admin.properties]
+    # Broker unique du pool dual (identifiant 0).
+    otel_kafka_broker_id: '0'
     otel_unregistered_topic: otel-logs-acl_probe-homologation
   tasks:
     - name: Vérifier le secret racine Kafka OTel
@@ -24,14 +29,23 @@
         fail_msg: Charger KAFKA_OTEL_PUBLISHER_PASSWORD (source architecture/platform/elk/scripts/load-credentials.sh).
         quiet: true
 
+    - name: Déposer la configuration cliente de l'administrateur dans le pod Kafka
+      ansible.builtin.shell:
+        cmd: >-
+          printf '%s\n' 'security.protocol=SASL_PLAINTEXT' 'sasl.mechanism=SCRAM-SHA-512'
+          'sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="{{ otel_kafka_admin_username }}" password="{{ otel_kafka_admin_password }}";'
+          | {{ otel_kafka_exec | join(' ') }} sh -c 'umask 077; cat > /tmp/otel-admin.properties'
+      changed_when: false
+      no_log: true
+
     - name: Lire le registre des plateformes
       ansible.builtin.import_role:
-        name: otel_backend
+        name: otel_registry
         tasks_from: platforms.yml
 
     - name: Lire la configuration du broker
       ansible.builtin.command:
-        argv: "{{ otel_kafka_exec + ['/opt/kafka/bin/kafka-configs.sh'] + otel_kafka_admin + ['--describe', '--all', '--entity-type', 'brokers', '--entity-name', '2'] }}"
+        argv: "{{ otel_kafka_exec + ['/opt/kafka/bin/kafka-configs.sh'] + otel_kafka_admin + ['--describe', '--all', '--entity-type', 'brokers', '--entity-name', otel_kafka_broker_id] }}"
       register: otel_broker_config
       changed_when: false
 
@@ -77,7 +91,7 @@
           {{ probes }}
       ansible.builtin.shell:
         cmd: >-
-          echo acl-probe | podman exec -i --env KAFKA_OPTS= observability-otel-kafka
+          echo acl-probe | {{ otel_kafka_exec | join(' ') }}
           /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092
           --topic {{ item.topic }}
           --producer-property security.protocol=SASL_PLAINTEXT

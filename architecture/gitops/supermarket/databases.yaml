@@ -1,0 +1,62 @@
+# Back-ends du supermarché dans k3s-01, déclarés comme instances des API du lab
+# (gitops/crossplane/apis) et composés depuis le hub par provider-kubernetes. Les mots de passe sont
+# lus dans les Secrets SOPS du groupe (namespace h0tl-supermarche-app du hub).
+---
+# PostgreSQL (CloudNativePG) : base observability_test, propriétaire observability, superutilisateur
+# postgres pour provider-sql (postgresql.yaml) par le NodePort 30432 de k3s-01.
+apiVersion: data.lab.io/v1alpha1
+kind: PostgreSQLInstance
+metadata:
+  name: supermarket-postgresql
+  namespace: h0tl-supermarche-app
+spec:
+  database: observability_test
+  owner: observability
+  passwordSecretRef: {name: postgresql-credentials, key: password}
+  nodePort: 30432
+  parameters:
+    # Charge pg_stat_statements (requêtes du receiver PostgreSQL : db.server.top_query).
+    pg_stat_statements.track: all
+---
+# MongoDB (MongoDB Controllers for Kubernetes) : crossplane_admin pour Terraform (mongodb.yaml, qui
+# crée otel_monitor) par le NodePort 30017, observability pour inventory-service (chaîne de connexion
+# dans le Secret supermarket-mongodb-observability de k3s-01).
+apiVersion: data.lab.io/v1alpha1
+kind: MongoDBInstance
+metadata:
+  name: supermarket-mongodb
+  namespace: h0tl-supermarche-app
+spec:
+  nodePort: 30017
+  users:
+    - name: crossplane_admin
+      db: admin
+      roles:
+        - {name: userAdminAnyDatabase, db: admin}
+        - {name: clusterMonitor, db: admin}
+      passwordSecretRef: {name: mongodb-credentials, key: crossplane_admin}
+    - name: observability
+      db: admin
+      roles:
+        - {name: readWrite, db: observability_test}
+      passwordSecretRef: {name: mongodb-credentials, key: observability}
+---
+# Kafka métier (Strimzi) : sans authentification, comme auparavant ; topics déclarés par
+# provider-kafka (kafka-topics.yaml) par le NodePort 31192 de k3s-01.
+apiVersion: data.lab.io/v1alpha1
+kind: KafkaCluster
+metadata:
+  name: supermarket-kafka
+  namespace: h0tl-supermarche-app
+spec:
+  authentication: none
+  externalNodePort: 31192
+  advertisedHost: 192.168.33.50
+  config:
+    auto.create.topics.enable: true
+    # Rétention par défaut des messages ; les topics déclarés gardent la leur.
+    log.retention.hours: 24
+    log.retention.bytes: 536870912
+    log.roll.hours: 1
+    log.segment.bytes: 67108864
+    log.cleanup.policy: delete

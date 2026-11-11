@@ -1,0 +1,6 @@
+# Namespace des collecteurs et du Kafka OTel dans k3s-01. Jamais supprimé par un élagage Argo CD.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: elastic-stack
+  annotations: {argocd.argoproj.io/sync-options: Delete=false}

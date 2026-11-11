@@ -1,0 +1,35 @@
+# Kafka OTel dans k3s-01 (Strimzi), déclaré comme instance de l'API KafkaCluster : SCRAM-SHA-512 et
+# ACL (ADR-017), administrateur otel-admin. Le listener externe (NodePort 31092 de k3s-01) sert le
+# Collecteur Edge de otel-edge-01 et provider-kafka ; le collecteur backend lit le listener interne.
+---
+apiVersion: data.lab.io/v1alpha1
+kind: KafkaCluster
+metadata:
+  name: otel-kafka
+  namespace: elastic-stack
+spec:
+  authentication: scram
+  adminUser:
+    name: otel-admin
+    passwordSecretRef: {name: kafka-otel-admin-password, key: password}
+  externalNodePort: 31092
+  advertisedHost: 192.168.33.50
+  config:
+    # Seuls les topics du registre (platforms.yaml) existent (ADR-017).
+    auto.create.topics.enable: false
+    log.retention.hours: 24
+    log.retention.bytes: 536870912
+    log.roll.hours: 1
+    log.segment.bytes: 67108864
+    log.cleanup.policy: delete
+    log.retention.check.interval.ms: 300000
+---
+# Accès de provider-kafka (topics, comptes et ACL des plateformes) : otel-admin, super-utilisateur.
+apiVersion: kafka.m.crossplane.io/v1alpha1
+kind: ClusterProviderConfig
+metadata:
+  name: kafka-otel
+spec:
+  credentials:
+    source: Secret
+    secretRef: {namespace: crossplane-system, name: kafka-otel-admin, key: credentials}

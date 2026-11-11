@@ -1,8 +1,8 @@
 ---
-# Rend localement les configurations des collecteurs du chemin de données
-# (Edge, backend, agents EDOT des VM) depuis l'inventaire, sans toucher aux
-# VM, pour les valider avec `elastic-otel-collector validate`
-# (make otel-config-validate). Les secrets absents prennent une valeur
+# Rend localement les configurations des collecteurs des VM (Edge, agents
+# EDOT) depuis l'inventaire, sans toucher aux VM, pour les valider avec
+# `elastic-otel-collector validate` (make otel-config-validate, qui valide
+# aussi les collecteurs de k3s-01 rendus par Kustomize). Les secrets absents prennent une valeur
 # factice : seule la structure est validée.
 - name: Rendre les configurations OTel des VM
   hosts: all
@@ -10,16 +10,10 @@
   connection: local
   vars:
     otel_render_dir: "{{ lookup('env', 'OTEL_RENDER_DIR') | default('/tmp/otel-render', true) }}"
-    otel_elasticsearch_api_key: "{{ lookup('env', 'OTEL_ELASTICSEARCH_API_KEY') | default('render', true) }}"
     otel_kafka_secret: "{{ lookup('env', 'KAFKA_OTEL_PUBLISHER_PASSWORD') | default('render', true) }}"
-    otel_kafka_consumer_password: "{{ lookup('env', 'KAFKA_OTEL_CONSUMER_PASSWORD') | default('render', true) }}"
     otel_edge_client_key: "{{ lookup('env', otel_edge_client_key_env) | default('render', true) }}"
     otel_edge_key_kubernetes: "{{ lookup('env', 'OTEL_EDGE_KEY_KUBERNETES') | default('render', true) }}"
     otel_edge_key_kubernetes_cluster: "{{ lookup('env', 'OTEL_EDGE_KEY_KUBERNETES_CLUSTER') | default('render', true) }}"
-    postgresql_otel_password: render
-    mongodb_otel_password: render
-    otel_kafka_broker: "127.0.0.1:9092"
-    elasticsearch_url: "http://{{ elk_ip }}:9200"
   tasks:
     - name: Créer le répertoire de rendu
       ansible.builtin.file:
@@ -53,26 +47,19 @@
 
     - name: Vérifier la liste des plateformes et en déduire les topics
       ansible.builtin.include_role:
-        name: otel_backend
+        name: otel_registry
         tasks_from: platforms.yml
-      when: inventory_hostname in groups.get('otel_backend_nodes', [])
+      run_once: true
 
-    - name: Vérifier que les VM restent dans le registre du backend
+    - name: Vérifier que les VM restent dans le registre des plateformes
       ansible.builtin.include_role:
-        name: otel_backend
+        name: otel_registry
         tasks_from: inventory-check.yml
-      when: inventory_hostname in groups.get('otel_backend_nodes', [])
-
-    - name: Rendre la configuration du collecteur backend OTEL
-      ansible.builtin.template:
-        src: roles/otel_backend/templates/otel-backend.yaml.j2
-        dest: "{{ otel_render_dir }}/otel-backend-{{ inventory_hostname }}.yaml"
-        mode: '0600'
-      when: inventory_hostname in groups.get('otel_backend_nodes', [])
+      run_once: true
 
     - name: Écrire la liste des topics OTel attendus
       ansible.builtin.copy:
         content: "{{ otel_topics | join('\n') }}\n"
         dest: "{{ otel_render_dir }}/otel-topics.txt"
         mode: '0644'
-      when: inventory_hostname in groups.get('otel_backend_nodes', [])
+      run_once: true

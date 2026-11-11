@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pilotage des 5 VM Lima du lab (lima/<vm>.yaml) et de leur provisionnement Ansible.
+# Pilotage des 4 VM Lima du lab (lima/<vm>.yaml) et de leur provisionnement Ansible.
 #
 #   vm up [--no-provision] [--parallel] [vm...]   crée ou démarre ; provisionne les VM créées
 #   vm provision <vm> [--playbook fleet-agent]    rejoue ansible/site.yml (ou fleet-agent.yml)
@@ -10,13 +10,13 @@
 #   vm stop [vm...] | vm restart [vm...]          arrêt, ou arrêt puis démarrage sans provisionnement
 #   vm delete [vm...]                             suppression des VM et de leurs disques
 #
-# Sans nom de VM, les commandes portent sur les 5 VM du lab.
+# Sans nom de VM, les commandes portent sur les 4 VM du lab.
 set -euo pipefail
 
 ARCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIMA_DIR="$ARCH_ROOT/lima"
 INVENTORY="$ARCH_ROOT/ansible/inventory/lima.yml"
-ALL_VMS=(supermarket-middleware-01 otel-backend-01 otel-edge-01 elk-01 k3s-01)
+ALL_VMS=(tools-01 k3s-01 elk-01 otel-edge-01)
 
 die() { echo "vm: $*" >&2; exit 1; }
 exists() { limactl list -q 2>/dev/null | grep -qx "$1"; }
@@ -41,17 +41,11 @@ extra_vars_file() {
     [ -f "$ZSCALER_CA_CERT" ] || die "ZSCALER_CA_CERT défini mais introuvable : $ZSCALER_CA_CERT"
     ca=$(cat "$ZSCALER_CA_CERT")
   fi
-  local pg="${POSTGRESQL_PASSWORD:-password}"
-  NODE_IP="$ip" PG="$pg" CA="$ca" python3 - > "$f" <<'PY'
+  NODE_IP="$ip" CA="$ca" python3 - > "$f" <<'PY'
 import json, os
 e = os.environ
 print(json.dumps({
     "node_ip": e["NODE_IP"],
-    "kafka_controller_voters": "1@192.168.33.10:9093",
-    "postgresql_password": e["PG"],
-    "mongodb_password": e.get("MONGODB_PASSWORD") or e["PG"],
-    "otel_elasticsearch_api_key": e.get("OTEL_ELASTICSEARCH_API_KEY", ""),
-    "elastic_password": e.get("ELASTIC_PASSWORD") or "password",
     "fleet_enrollment_token": e.get("FLEET_ENROLLMENT_TOKEN", ""),
     "otel_kafka_secret": e.get("KAFKA_OTEL_PUBLISHER_PASSWORD", ""),
     "otel_kafka_consumer_password": e.get("KAFKA_OTEL_CONSUMER_PASSWORD", ""),

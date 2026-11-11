@@ -41,40 +41,62 @@
       ansible.builtin.debug:
         var: retention_usage.stdout
 
-- name: Vérifier les paramètres effectifs du broker métier et des topics
-  hosts: supermarket_middleware_nodes
+# Brokers Kafka Strimzi de k3s-01 : outils Kafka exécutés dans le pod de chaque broker (identifiant
+# 0 du pool dual) ; le Kafka OTel exige l'administrateur SCRAM otel-admin.
+- name: Vérifier les paramètres effectifs des brokers Kafka et des topics
+  hosts: apps_nodes
   become: true
   gather_facts: false
+  vars:
+    kubectl_exec: [/usr/local/bin/k3s, kubectl, exec, -i, -c, kafka]
+    retention_kafka_clusters:
+      - {namespace: h0tl-supermarche-app, pod: supermarket-kafka-dual-0, topics: '^supermarket[.]', config: []}
+      - {namespace: elastic-stack, pod: otel-kafka-dual-0, topics: '^otel-', config: [--command-config, /tmp/otel-admin.properties]}
   tasks:
-    - name: Lire la configuration effective du broker
-      ansible.builtin.command: >-
-        podman exec --env KAFKA_OPTS= observability-kafka
-        /opt/kafka/bin/kafka-configs.sh --bootstrap-server localhost:9092
-        --entity-type brokers --entity-name 1 --describe --all
-      register: retention_broker
+    - name: Déposer la configuration cliente de l'administrateur du Kafka OTel
+      ansible.builtin.shell:
+        cmd: >-
+          printf '%s\n' 'security.protocol=SASL_PLAINTEXT' 'sasl.mechanism=SCRAM-SHA-512'
+          'sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="{{ otel_kafka_admin_username }}" password="{{ otel_kafka_admin_password }}";'
+          | {{ kubectl_exec | join(' ') }} -n elastic-stack otel-kafka-dual-0 -- sh -c 'umask 077; cat > /tmp/otel-admin.properties'
+      changed_when: false
+      no_log: true
+
+    - name: Lire la configuration effective des brokers
+      ansible.builtin.command:
+        argv: "{{ kubectl_exec + ['-n', item.namespace, item.pod, '--', '/opt/kafka/bin/kafka-configs.sh', '--bootstrap-server', 'localhost:9092'] + item.config + ['--entity-type', 'brokers', '--entity-name', '0', '--describe', '--all'] }}"
+      loop: "{{ retention_kafka_clusters }}"
+      loop_control:
+        label: "{{ item.namespace }}/{{ item.pod }}"
+      register: retention_brokers
       changed_when: false
 
-    - name: Vérifier la rétention effective du broker
+    - name: Vérifier la rétention effective des brokers
       ansible.builtin.assert:
         that:
-          - "'log.retention.hours=24 ' in retention_broker.stdout"
-          - "'log.retention.bytes=536870912 ' in retention_broker.stdout"
-          - "'log.cleanup.policy=delete ' in retention_broker.stdout"
-          - "'log.roll.hours=1 ' in retention_broker.stdout"
+          - "'log.retention.hours=24 ' in item.stdout"
+          - "'log.retention.bytes=536870912 ' in item.stdout"
+          - "'log.cleanup.policy=delete ' in item.stdout"
+          - "'log.roll.hours=1 ' in item.stdout"
+      loop: "{{ retention_brokers.results }}"
+      loop_control:
+        label: "{{ item.item.namespace }}/{{ item.item.pod }}"
 
     - name: Lire les topics
-      ansible.builtin.command: >-
-        podman exec --env KAFKA_OPTS= observability-kafka
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+      ansible.builtin.command:
+        argv: "{{ kubectl_exec + ['-n', item.namespace, item.pod, '--', '/opt/kafka/bin/kafka-topics.sh', '--bootstrap-server', 'localhost:9092'] + item.config + ['--list'] }}"
+      loop: "{{ retention_kafka_clusters }}"
+      loop_control:
+        label: "{{ item.namespace }}/{{ item.pod }}"
       register: retention_topics
       changed_when: false
 
-    - name: Lire les rétentions effectives des topics
-      ansible.builtin.command: >-
-        podman exec --env KAFKA_OPTS= observability-kafka
-        /opt/kafka/bin/kafka-configs.sh --bootstrap-server localhost:9092
-        --entity-type topics --entity-name {{ item }} --describe --all
-      loop: "{{ retention_topics.stdout_lines | select('match', '^(supermarket[.]|otel-)') | list }}"
+    - name: Lire les rétentions effectives des topics métier et OTLP
+      ansible.builtin.command:
+        argv: "{{ kubectl_exec + ['-n', item.0.item.namespace, item.0.item.pod, '--', '/opt/kafka/bin/kafka-configs.sh', '--bootstrap-server', 'localhost:9092'] + item.0.item.config + ['--entity-type', 'topics', '--entity-name', item.1, '--describe', '--all'] }}"
+      loop: "{{ retention_topics.results | subelements('stdout_lines') | selectattr('1', 'match', '^(supermarket[.]|otel-)') | list }}"
+      loop_control:
+        label: "{{ item.1 }}"
       register: retention_configs
       changed_when: false
 
@@ -87,54 +109,4 @@
           - "'cleanup.policy=delete ' in item.stdout"
       loop: "{{ retention_configs.results }}"
       loop_control:
-        label: "{{ item.item }}"
-
-- name: Vérifier les paramètres effectifs du broker Kafka OTel et des topics
-  hosts: otel_backend_nodes
-  become: true
-  gather_facts: false
-  tasks:
-    - name: Lire la configuration effective du broker Kafka OTel
-      ansible.builtin.command: >-
-        podman exec --env KAFKA_OPTS= observability-otel-kafka
-        /opt/kafka/bin/kafka-configs.sh --bootstrap-server localhost:9092
-        --command-config /opt/kafka/config/otel-kafka-client.properties
-        --entity-type brokers --entity-name 2 --describe --all
-      register: retention_otel_broker
-      changed_when: false
-
-    - name: Vérifier la rétention effective du broker Kafka OTel
-      ansible.builtin.assert:
-        that:
-          - "'log.retention.hours=24 ' in retention_otel_broker.stdout"
-          - "'log.retention.bytes=536870912 ' in retention_otel_broker.stdout"
-          - "'log.cleanup.policy=delete ' in retention_otel_broker.stdout"
-          - "'log.roll.hours=1 ' in retention_otel_broker.stdout"
-
-    - name: Lire les topics Kafka OTel
-      ansible.builtin.command: >-
-        podman exec --env KAFKA_OPTS= observability-otel-kafka
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --command-config /opt/kafka/config/otel-kafka-client.properties --list
-      register: retention_otel_topics
-      changed_when: false
-
-    - name: Lire les rétentions effectives des topics Kafka OTel
-      ansible.builtin.command: >-
-        podman exec --env KAFKA_OPTS= observability-otel-kafka
-        /opt/kafka/bin/kafka-configs.sh --bootstrap-server localhost:9092
-        --command-config /opt/kafka/config/otel-kafka-client.properties
-        --entity-type topics --entity-name {{ item }} --describe --all
-      loop: "{{ retention_otel_topics.stdout_lines | select('match', '^otel-') | list }}"
-      register: retention_otel_configs
-      changed_when: false
-
-    - name: Vérifier la rétention des topics Kafka OTel
-      ansible.builtin.assert:
-        that:
-          - "'retention.ms=86400000 ' in item.stdout"
-          - "'retention.bytes=536870912 ' in item.stdout"
-          - "'segment.ms=3600000 ' in item.stdout"
-          - "'cleanup.policy=delete ' in item.stdout"
-      loop: "{{ retention_otel_configs.results }}"
-      loop_control:
-        label: "{{ item.item }}"
+        label: "{{ item.item.1 }}"

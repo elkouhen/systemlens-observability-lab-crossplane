@@ -1,10 +1,13 @@
-# Chaîne OTel : Kafka OTel de otel-backend-01 (registre des plateformes, comptes SCRAM, ACL),
-# Service vers le Collecteur Edge et collecteurs OTel de k3s-01 (Application Argo CD otel-pipeline).
+# Chaîne OTel (Application Argo CD otel-pipeline, synchronisée dans le hub) : Kafka OTel de k3s-01
+# (KafkaCluster), registre des plateformes, comptes SCRAM et ACL (provider-kafka), Secrets des
+# collecteurs recopiés dans k3s-01, et l'Application imbriquée otel-pipeline-k3s-01 (k3s-01/ :
+# Service vers le Collecteur Edge, collecteurs OTel).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - secrets-app.yaml
+  - k3s-01-app.yaml
+  - kafka.yaml
   - platforms.yaml
   - kafka-accounts.yaml
-  - edge-service.yaml
-  - kubernetes-collectors.yaml
+  - target.yaml

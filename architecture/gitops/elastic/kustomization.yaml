@@ -1,15 +1,13 @@
-# Plateforme Elastic de elk-01 (Application Argo CD elastic) : accès depuis k3s-01 (namespace,
-# Services, IngressRoutes) et configuration déclarée par Crossplane (ILM, pipelines, clé API OTel,
-# Fleet, saved objects, règles d'alerte, dashboards). Les fichiers de assets/ sont la source de
+# Plateforme Elastic de elk-01 (Application Argo CD elastic, synchronisée dans le hub) : instance
+# ObservabilityStack (ECK dans elk-01) et configuration déclarée par Crossplane (ILM, pipelines,
+# clé API OTel, Fleet, saved objects, règles d'alerte, dashboards). Les fichiers de assets/ sont la source de
 # vérité : Kustomize les publie tels quels.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - secrets-app.yaml
   - namespace.yaml
-  - vm-services.yaml
-  - ingress.yaml
-  - certificate.yaml
+  - stack.yaml
   - provider-configs.yaml
   - elasticsearch.yaml
   - fleet.yaml

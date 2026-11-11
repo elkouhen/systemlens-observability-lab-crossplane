@@ -1,5 +1,5 @@
 # Cache des paquets Crossplane (providers, fonctions) dans le cache local de l'hôte, monté par Lima
-# sur k3s-01 (/var/cache/lab) : conservé d'une reconstruction à l'autre. Monté par le chart
+# sur tools-01 (/var/cache/lab) : conservé d'une reconstruction à l'autre. Monté par le chart
 # Helm (packageCache.pvc, helm-release.yaml).
 apiVersion: v1
 kind: PersistentVolume

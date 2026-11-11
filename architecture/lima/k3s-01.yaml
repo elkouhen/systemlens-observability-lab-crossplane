@@ -1,6 +1,7 @@
-# k3s-01 : nom, IP privée, mémoire et disque de la VM
+# k3s-01 : cluster applicatif k3s (services Java, PostgreSQL, MongoDB, Kafka métier et OTel,
+# collecteurs OTel), piloté depuis le hub tools-01.
 base: ./base.yaml
-memory: 8GiB
+memory: 7GiB
 disk: 60GiB
 ssh:
   localPort: 2255
@@ -8,8 +9,7 @@ param:
   HOSTNAME: k3s-01
   NODE_IP: 192.168.33.50
 portForwards:
-  - {guestPort: 6443, hostIP: 127.0.0.1}
-  - {guestPort: 80, hostPort: 8080, hostIP: 127.0.0.1}
-  - {guestPort: 443, hostPort: 8443, hostIP: 127.0.0.1}
+  # API Kubernetes (.kube/k3s.config), sur le port 6444 de l'hôte : 6443 est celui du hub.
+  - {guestPort: 6443, hostPort: 6444, hostIP: 127.0.0.1}
   - guestPortRange: [1, 65535]
     ignore: true

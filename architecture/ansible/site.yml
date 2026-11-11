@@ -7,19 +7,14 @@
     - role: common
     - role: retention
 
-- name: Déployer la plateforme Elastic
-  hosts: elk_nodes
+# Serveurs k3s : hub tools-01 et clusters cibles k3s-01 et elk-01. Tout ce qui tourne dans ces
+# clusters est déployé ensuite par Argo CD et Crossplane depuis le hub (make deploy).
+- name: Déployer les serveurs k3s
+  hosts: k3s_nodes
   become: true
   gather_facts: true
   roles:
-    - role: elk
-
-- name: Déployer le backend OTel
-  hosts: otel_backend_nodes
-  become: true
-  gather_facts: true
-  roles:
-    - role: otel_backend
+    - role: k3s
 
 - name: Déployer la passerelle Edge OTel
   hosts: otel_edge_nodes
@@ -27,20 +22,6 @@
   gather_facts: true
   roles:
     - role: otel_edge
-
-- name: Déployer le middleware du scénario
-  hosts: supermarket_middleware_nodes
-  become: true
-  gather_facts: true
-  roles:
-    - role: supermarket_middleware
-
-- name: Déployer le serveur k3s
-  hosts: k3s_nodes
-  become: true
-  gather_facts: true
-  roles:
-    - role: k3s
 
 - name: Installer et configurer les agents EDOT
   hosts: elastic_agent_nodes
