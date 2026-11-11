@@ -39,6 +39,8 @@ spec:
       db: admin
       roles:
         - {name: readWrite, db: observability_test}
+        # Profilage des requêtes de la charge de test (make mongodb-workload).
+        - {name: dbAdmin, db: observability_test}
       passwordSecretRef: {name: mongodb-credentials, key: observability}
 ---
 # Kafka métier (Strimzi) : sans authentification, comme auparavant ; topics déclarés par

@@ -53,6 +53,9 @@ télémétrie suivent les procédures de [l’architecture](architecture.md).
   règles de gabarit de l'agent Java en configuration déclarative.
 - [ADR-012 : plus d'ECS pour les logs](../architecture/docs/ADR-012-logs-otel-natifs-sans-ecs.md) :
   logs applicatifs exportés en OTLP par l'agent, data streams `.otel`.
+- [ADR-021 : un hub de gestion pilote les clusters cibles](../architecture/docs/ADR-021-hub-de-gestion-et-clusters-cibles.md) :
+  hub `tools-01` (Argo CD, Crossplane), clusters `k3s-01` et `elk-01`, back-ends
+  sous opérateurs Kubernetes.
 - [Briques de remontée de la télémétrie](briques-remontee-telemetrie.md) :
   sources, transport, destinations et fichiers IaC associés.
 - [Gestion du débit de télémétrie](gestion-du-debit-observabilite.md) :

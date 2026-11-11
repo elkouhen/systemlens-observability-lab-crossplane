@@ -20,7 +20,7 @@ make vm-status
 make architecture-deploy
 ```
 
-`make vms-start` démarre les cinq VM en parallèle, puis provisionne leurs rôles
+`make vms-start` démarre les quatre VM en parallèle, puis provisionne leurs rôles
 avec un seul playbook Ansible parallèle. Après le contrôle `make vm-status`,
 `make architecture-deploy` déploie la plateforme Elastic, Fleet,
 Kubernetes et l'application.
@@ -31,7 +31,7 @@ Makefile n'utilise plus de valeur par défaut pour ces secrets.
 Optionnel, uniquement derrière un proxy TLS d'entreprise (Zscaler) : les VM
 ne peuvent alors pas télécharger les images `docker.elastic.co` sans sa
 racine de confiance (`x509: certificate signed by unknown authority` dans le
-journal d’`observability-elasticsearch`). Dans ce cas seulement,
+journal des pods). Dans ce cas seulement,
 déposer le certificat racine PEM dans `certs/zscaler-root-ca.crt`, décrit
 dans [certs/README.md](certs/README.md) : le `Makefile` l'utilise
 automatiquement. `ZSCALER_CA_CERT` permet d'indiquer un autre chemin absolu.

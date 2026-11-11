@@ -118,7 +118,7 @@ chaîne de collecte.
 | AC-02 | L’opérateur exécute `make ansible-validate` | Les playbooks Ansible sont syntaxiquement valides sans provisioning |
 | AC-03 | Une application émet une trace et expose ses métriques | Les signaux sont transportés par la chaîne OTLP puis visibles dans Elastic |
 | AC-04 | Un service applicatif émet un log dans une transaction | Le log est consultable dans `logs-generic.otel-supermarche_*` avec son `trace_id` et son contexte Kubernetes |
-| AC-05 | L’agent EDOT standalone de `supermarket-middleware-01` est actif | Les logs et métriques de la VM sont visibles après leur passage par Edge et Kafka |
+| AC-05 | L’agent EDOT standalone de `elk-01` est actif | Les logs et métriques de la VM sont visibles après leur passage par Edge et Kafka |
 | AC-06 | L’opérateur exécute `make otel-validation` | La validation OTLP retourne un résultat exploitable |
 | AC-07 | L’opérateur exécute `make dashboards-verify` | Les jeux de données attendus par les dashboards sont récents |
 

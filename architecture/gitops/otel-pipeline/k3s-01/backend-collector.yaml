@@ -1,7 +1,7 @@
 # Collecteur backend OTel (ADR-005, ADR-013, ADR-018, ADR-019) : lit les topics otel-* du Kafka OTel
 # (listener interne, compte SCRAM otel_consumer) et indexe en OTel natif dans Elasticsearch
 # (elk-01, clé API otel-collector-writer recopiée depuis le hub). Reprend la configuration du
-# collecteur de l'ancienne VM otel-backend-01 ; sa file persistante est sur un volume local.
+# collecteur backend ; sa file persistante est sur un volume local.
 ---
 apiVersion: v1
 kind: ConfigMap

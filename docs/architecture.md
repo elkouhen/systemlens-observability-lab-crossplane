@@ -1,7 +1,7 @@
 # Architecture : Hybride Fleet
 
 L’architecture active du lab utilise Elastic
-Stack `9.4.3`, OpenTelemetry et EDOT pour les applications, Kubernetes et les
+Stack `9.5.4`, OpenTelemetry et EDOT pour les applications, Kubernetes et les
 VM. Les agents des VM sont installés en mode EDOT standalone. Leur supervision
 Fleet OpAMP est optionnelle et limitée au monitoring ; leur configuration reste
 gérée par les fichiers Ansible versionnés.
@@ -20,36 +20,30 @@ du dépôt. Les manifests Kubernetes et le provisionnement des VM sont propres
 ## Topologie
 
 ```text
-Applications Java et pods Kubernetes
-                 |
-                 v
-       Collecteur Edge sur otel-edge-01
-                 |
-                 v
-       Kafka OTel sur otel-backend-01
-                 |
-                 v
-   EDOT backend sur otel-backend-01
-                 |
-                 v
-       Elasticsearch sur elk-01
-                 |
-                 v
-                Kibana
+tools-01 (hub k3s) : Argo CD, Crossplane, cert-manager
+   │ déploie et configure depuis Git (ADR-021)
+   ├──▶ k3s-01 (k3s) : applications Java, PostgreSQL, MongoDB, Kafka métier,
+   │                   Kafka OTel, collecteurs OTel (Kubernetes, backend, supervision)
+   └──▶ elk-01 (k3s + ECK) : Elasticsearch, Kibana, Fleet Server
 
-VM de données et VM de plateforme
-                 |
-                 v
-        Elastic Agent EDOT
-                 |
-                 v
-       Collecteur Edge, Kafka et backend
+Applications, collecteurs Kubernetes, agents EDOT des VM
+                 │ OTLP (clé Bearer)
+                 ▼
+       Collecteur Edge sur otel-edge-01 (VM)
+                 │ Kafka SCRAM, NodePort 192.168.33.50:31092
+                 ▼
+       Kafka OTel dans k3s-01
+                 ▼
+       Collecteur backend EDOT dans k3s-01
+                 ▼
+       Elasticsearch sur elk-01 (192.168.33.40:9200) ──▶ Kibana
 ```
 
-`otel-edge-01` fournit le point d’entrée exposé pour OTLP. `elk-01` héberge
-Elasticsearch, Kibana et Fleet Server. `otel-backend-01` héberge le Kafka OTel,
-le Collector backend et l’export vers Elastic. `supermarket-middleware-01` héberge le Kafka métier,
-MongoDB et PostgreSQL.
+`otel-edge-01` fournit le point d’entrée exposé pour OTLP. `tools-01` est le cluster de gestion :
+Argo CD y synchronise `architecture/gitops/` et Crossplane y compose les objets des clusters cibles.
+`k3s-01` héberge les applications, leurs bases (CloudNativePG, MongoDB Controllers for Kubernetes),
+le Kafka métier et le Kafka OTel (Strimzi), le collecteur backend et l’export vers Elastic.
+`elk-01` héberge Elasticsearch, Kibana et Fleet Server sous ECK.
 
 Les namespaces Kubernetes conservés sont `elastic-stack` pour la plateforme
 et `h0tl-supermarche-app` pour l’application.
@@ -72,8 +66,8 @@ et métriques en OTLP au Collecteur Edge avec Elastic Agent EDOT standalone.
 Les topics sont séparés par signal, par plateforme et par environnement :
 `otel-<signal>-<plateforme>-<environnement>` (ADR-015). Le lab compte quatre
 plateformes en `homologation` : `k3s` (cluster et collecteurs Kubernetes, VM
-`k3s-01`), `supermarche` (namespace `h0tl-supermarche-app`, VM
-`supermarket-middleware-01`), `demo` (namespace `h0tl-demo-app`, API de
+`k3s-01`), `supermarche` (namespace `h0tl-supermarche-app`, supervision de ses
+bases et de son Kafka), `demo` (namespace `h0tl-demo-app`, API de
 démonstration `demo-api`) et `elk` (VM d'observabilité, collecteurs Edge et
 backend). Chaque client déclare sa plateforme et son environnement dans sa
 ressource (`platform.id`, `deployment.environment.name`) ; l'Edge publie dans
@@ -93,12 +87,14 @@ tire les métriques agrégées de l'UI APM (ADR-018).
 | Composant | Responsabilité | Source de configuration |
 | --- | --- | --- |
 | `otel-edge-01` | Recevoir l’OTLP Kubernetes et VM puis publier dans Kafka | `architecture/ansible/roles/otel_edge/` |
-| EDOT DaemonSet | Collecter les métriques `kubeletstats` du nœud | `architecture/gitops/otel-pipeline/` |
-| `supermarket-middleware-01` | Fournir Kafka, MongoDB et PostgreSQL | `architecture/ansible/` |
-| `otel-backend-01` | Consommer Kafka et exporter les signaux vers Elastic | `architecture/ansible/` |
+| EDOT DaemonSet | Collecter les métriques `kubeletstats` du nœud | `architecture/gitops/otel-pipeline/k3s-01/` |
+| `tools-01` | Synchroniser Git (Argo CD) et composer les clusters cibles (Crossplane) | `architecture/gitops/` |
+| Back-ends de `k3s-01` | Fournir Kafka métier, MongoDB et PostgreSQL | `architecture/gitops/supermarket/databases.yaml` |
+| Kafka OTel et collecteur backend (`k3s-01`) | Tamponner puis exporter les signaux vers Elastic | `architecture/gitops/otel-pipeline/` |
+| Collecteur `otel-middleware` (`k3s-01`) | Superviser PostgreSQL, MongoDB et les deux Kafka | `architecture/gitops/otel-pipeline/k3s-01/` |
 | `otel-edge-01` | Exposer les points d’entrée et héberger le Collecteur Edge | `architecture/ansible/` et `architecture/gitops/otel-pipeline/` |
-| `elk-01` | Fournir Elasticsearch, Kibana et Fleet Server | `architecture/ansible/` |
-| Elastic Agent EDOT | Collecter les logs et métriques des cinq VM, `k3s-01` compris, et les exporter vers l'Edge déclaré par la VM | `architecture/ansible/roles/elastic_agent/` |
+| `elk-01` | Fournir Elasticsearch, Kibana et Fleet Server (ECK) | `architecture/gitops/elastic/` |
+| Elastic Agent EDOT | Collecter les logs et métriques de `k3s-01`, `elk-01` et `otel-edge-01` et les exporter vers l'Edge déclaré par la VM | `architecture/ansible/roles/elastic_agent/` |
 
 Les collecteurs Kubernetes et les applications envoient leurs signaux au
 Collecteur Edge via le Service `otel-edge-vm`. Les agents EDOT standalone des
@@ -118,12 +114,13 @@ Les contrôles et évolutions de l'architecture doivent conserver les invariants
    table de routage.
 4. Les VM utilisent Elastic Agent EDOT, déclarent leur plateforme, leur
    environnement et leur Edge, et exportent en OTLP vers ce Collecteur Edge
-   avant Kafka et le traitement backend, `otel-backend-01` publiant
-   directement dans son Kafka local.
+   avant Kafka et le traitement backend.
 5. Les secrets et jetons restent hors Git et sont fournis par les mécanismes
    prévus par le dépôt.
 6. Les changements durables de Kubernetes, Fleet, Elastic et Ansible restent
    déclarés dans les fichiers versionnés correspondants.
+7. Les clusters cibles ne reçoivent que ce que le hub y déploie depuis Git
+   (Argo CD ou Crossplane) ; Ansible se limite aux hôtes (ADR-021).
 
 ## Déploiement et vérification
 

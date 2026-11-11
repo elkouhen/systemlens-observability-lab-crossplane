@@ -523,8 +523,11 @@ otel-config-validate: ## Rendre les configurations Edge et agents (inventaire) e
 	for configmap in otel-backend-config:backend.yaml otel-middleware-config:middleware.yaml otel-kafka-config:daemonset.yaml otel-kafka-config:cluster.yaml; do \
 	  $(KUBECTL) kustomize $(GITOPS_ROOT)/otel-pipeline/$(K3S_VM_NAME) | ruby -ryaml $(ARCH_ROOT)/scripts/configmap-key.rb "$${configmap%%:*}" "$${configmap#*:}" \
 	    > '$(OTEL_RENDER_DIR)'/k3s-$${configmap%%:*}-$${configmap#*:}; done; \
+	mkdir -p '$(OTEL_RENDER_DIR)/serviceaccount'; echo render > '$(OTEL_RENDER_DIR)/serviceaccount/token'; cp /etc/ssl/cert.pem '$(OTEL_RENDER_DIR)/serviceaccount/ca.crt'; \
 	for file in '$(OTEL_RENDER_DIR)'/otel-edge-*.yaml '$(OTEL_RENDER_DIR)'/k3s-*.yaml '$(OTEL_RENDER_DIR)'/elastic-agent-*.collector.yaml; do \
 	  docker run --rm --tmpfs /var/lib/otel-edge --tmpfs /var/lib/otel \
+	    -e KUBERNETES_SERVICE_HOST=127.0.0.1 -e KUBERNETES_SERVICE_PORT=443 \
+	    -v "$(abspath $(OTEL_RENDER_DIR))/serviceaccount:/var/run/secrets/kubernetes.io/serviceaccount:ro" \
 	    -e OTEL_KAFKA_PUBLISHER_USERNAME=render -e OTEL_KAFKA_PUBLISHER_PASSWORD=render \
 	    -e OTEL_KAFKA_CONSUMER_USERNAME=render -e OTEL_KAFKA_CONSUMER_PASSWORD=render \
 	    -e ELASTICSEARCH_API_KEY=render -e OTEL_EDGE_API_KEY=render -e K8S_NODE_NAME=render -e K8S_NODE_IP=127.0.0.1 -e K8S_POD_NAME=render \
@@ -601,7 +604,7 @@ otel-backend-status: ## Vérifier le collecteur backend OTel de k3s-01
 
 dashboards-verify: ## Vérifier que les jeux de données alimentant les dashboards sont récents
 	@set -euo pipefail; es_password="$${ELASTICSEARCH_PASSWORD:-$$( $(KUBECTL) -n $(K8S_NAMESPACE) get secret elasticsearch-es-elastic-user -o jsonpath='{.data.elastic}' 2>/dev/null | base64 --decode )}"; \
-		test -n "$$es_password" || { echo 'ELASTICSEARCH_PASSWORD requis pour la stack Elastic Quadlet.' >&2; exit 1; }; \
+		test -n "$$es_password" || { echo 'ELASTICSEARCH_PASSWORD requis pour la vérification.' >&2; exit 1; }; \
 	ELASTICSEARCH_URL='$(ELASTICSEARCH_URL)' ELASTICSEARCH_CURL_RESOLVE='$(ELASTICSEARCH_CURL_RESOLVE)' ELASTICSEARCH_PASSWORD="$$es_password" \
 		./$(ARCH_ROOT)/platform/elk/scripts/verify-dashboard-data.sh
 

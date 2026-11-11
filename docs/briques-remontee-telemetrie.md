@@ -35,22 +35,23 @@ receiver, par exemple `metrics-kubeletstatsreceiver.otel-k3s_homologation` et
 `metrics-hostmetricsreceiver.otel-<plateforme>_homologation` : le namespace
 sépare `k3s`, `supermarche` et `elk` (ADR-019), comme le champ `platform.id`.
 
-Les cinq VM, `k3s-01` comprise, exécutent Elastic Agent en mode EDOT
+Les VM `k3s-01`, `elk-01` et `otel-edge-01` exécutent Elastic Agent en mode EDOT
 standalone. La configuration locale collecte les logs système et les
-métriques hôte, puis exporte en OTLP vers l'Edge déclaré par la VM ;
-`otel-backend-01` publie directement dans son Kafka local (ADR-005). Les
+métriques hôte, puis exporte en OTLP vers l'Edge déclaré par la VM. PostgreSQL, MongoDB et les
+deux Kafka sont supervisés par le collecteur `otel-middleware` de `k3s-01`
+(ADR-021). Les
 anciennes policies Fleet de collecte VM ne doivent pas être actives en
 parallèle.
 
 ## Contrôles
 
 ```bash
-kubectl -n elastic-stack get deployment,daemonset,pods
+kubectl --kubeconfig architecture/.kube/k3s.config -n elastic-stack get deployment,daemonset,pods
 make otel-config-validate
 make otel-validation
 make otel-routing-verify
 make otel-gateway-vm-status
-architecture/scripts/vm shell supermarket-middleware-01 'sudo /opt/Elastic/Agent/elastic-agent status'
+architecture/scripts/vm shell elk-01 'sudo /opt/Elastic/Agent/elastic-agent status'
 ```
 
 ## Sources IaC

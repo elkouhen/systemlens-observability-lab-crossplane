@@ -9,8 +9,8 @@ dans Discover.
 Le parcours validé dans l’architecture active est :
 
 - `edge-directe-ssh` : playbook SSH sur `otel-edge-01` → Collecteur EDOT Edge
-  via HAProxy `127.0.0.1:4318` → Kafka `otel-metrics-elk-homologation` →
-  exporteur OTel `otel-backend-01` → data stream
+  via HAProxy `127.0.0.1:4318` → Kafka OTel de `k3s-01` (`otel-metrics-elk-homologation`) →
+  collecteur backend de `k3s-01` → data stream
   `metrics-generic.otel-elk_homologation` avec `platform.id` = `elk` → Kibana.
   La métrique déclare `platform.id` = `elk` et
   `deployment.environment.name` = `homologation` : sans plateforme servie par
@@ -18,7 +18,7 @@ Le parcours validé dans l’architecture active est :
 
 ## Prérequis
 
-- Ansible, Lima et la VM `supermarket-middleware-01` démarrée ;
+- Ansible, Lima et la VM `otel-edge-01` démarrée ;
 - un compte Elasticsearch ayant le droit de lire `metrics-*` ;
 - le mot de passe Elasticsearch et la clé Bearer `OTEL_EDGE_KEY_OTEL_EDGE_01`
   de la VM `otel-edge-01` auprès de son Edge, fournis uniquement par

@@ -1,5 +1,0 @@
----
-- name: Redémarrer Kibana après modification de sa définition
-  ansible.builtin.systemd_service:
-    name: observability-kibana.service
-    state: restarted

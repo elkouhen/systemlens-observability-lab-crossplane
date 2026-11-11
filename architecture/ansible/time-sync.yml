@@ -1,5 +1,5 @@
 ---
-# Applique seule la configuration chrony du rôle common aux cinq VM
+# Applique seule la configuration chrony du rôle common aux quatre VM
 # (make time-sync-apply), sans redéployer les autres composants.
 - name: Synchronisation horaire des VM
   hosts: all

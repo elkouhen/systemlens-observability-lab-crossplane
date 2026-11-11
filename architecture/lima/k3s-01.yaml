@@ -1,6 +1,9 @@
 # k3s-01 : cluster applicatif k3s (services Java, PostgreSQL, MongoDB, Kafka métier et OTel,
 # collecteurs OTel), piloté depuis le hub tools-01.
 base: ./base.yaml
+# 4 vCPU : trois JVM, deux Kafka, PostgreSQL et MongoDB saturent 2 vCPU au démarrage
+# (sondes de vivacité en échec, redémarrages en chaîne).
+cpus: 4
 memory: 7GiB
 disk: 60GiB
 ssh:

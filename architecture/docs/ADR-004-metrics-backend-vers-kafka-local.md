@@ -2,7 +2,8 @@
 
 ## Statut
 
-Accepted
+Superseded par [ADR-021](ADR-021-hub-de-gestion-et-clusters-cibles.md) (2026-11-11 : la VM
+`otel-backend-01` est supprimée, le collecteur backend tourne dans `k3s-01`). Auparavant accepted
 
 ## Date
 

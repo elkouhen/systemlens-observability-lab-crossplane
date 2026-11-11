@@ -30,10 +30,12 @@ sont provisionnés par Ansible en mode EDOT standalone.
 | --- | --- | --- |
 | Service `otel-edge-vm` | Kubernetes, namespace `elastic-stack` | Exposer le Collecteur Edge sur les ports `4317` et `4318` |
 | EDOT DaemonSet | Kubernetes | Collecter les métriques hôte et kubelet prévues par la configuration |
-| Kafka | `supermarket-middleware-01` | Tamponner les signaux applicatifs, Kubernetes et VM dans trois topics dédiés |
-| Collector backend EDOT | `otel-backend-01` | Consommer Kafka, traiter les signaux et les exporter vers Elastic |
+| Argo CD, Crossplane | `tools-01` (hub k3s) | Synchroniser Git et composer les ressources des clusters cibles (ADR-021) |
+| Kafka OTel (Strimzi) | `k3s-01` | Tamponner les signaux applicatifs, Kubernetes et VM dans des topics par plateforme |
+| Collector backend EDOT | `k3s-01` | Consommer Kafka, traiter les signaux et les exporter vers Elastic |
+| Collecteur `otel-middleware` | `k3s-01` | Superviser PostgreSQL, MongoDB et les deux Kafka |
 | HAProxy | `otel-edge-01` | Exposer les points d’entrée OTLP |
-| Elasticsearch | `elk-01` | Stocker les signaux et fournir les API d’ingestion et de recherche |
+| Elasticsearch (ECK) | `elk-01` | Stocker les signaux et fournir les API d’ingestion et de recherche |
 | Kibana | `elk-01` | Fournir Discover, APM, Fleet et les dashboards |
 | Fleet Server | `elk-01` | Fournir le plan de contrôle Fleet et le monitoring OpAMP optionnel |
 | Elastic Agent EDOT standalone | Chaque VM active | Collecter les logs et métriques des VM et des services intégrés |
@@ -71,10 +73,10 @@ environnement, `otel-<signal>-<plateforme>-<environnement>`
 
 | Topic | Producteurs principaux | Consommateur |
 | --- | --- | --- |
-| `otel-<signal>-supermarche-homologation` | Collecteur Edge : services `supermarket-demo` (namespace `h0tl-supermarche-app`) et VM `supermarket-middleware-01` | Collector backend |
+| `otel-<signal>-supermarche-homologation` | Collecteur Edge : services `supermarket-demo` (namespace `h0tl-supermarche-app`) et supervision de ses bases et de son Kafka | Collector backend |
 | `otel-<signal>-k3s-homologation` | Collecteur Edge : collecteurs Kubernetes et VM `k3s-01` | Collector backend |
 | `otel-<signal>-demo-homologation` | Collecteur Edge : `demo-api` (namespace `h0tl-demo-app`) | Collector backend |
-| `otel-<signal>-elk-homologation` | Collecteur Edge : VM `elk-01` et `otel-edge-01`, télémétrie de l'Edge ; agent EDOT de `otel-backend-01` en direct | Collector backend |
+| `otel-<signal>-elk-homologation` | Collecteur Edge : VM `elk-01` et `otel-edge-01`, télémétrie de l'Edge, supervision du Kafka OTel | Collector backend |
 
 Chaque client déclare `platform.id` et `deployment.environment.name` ; le
 collecteur Edge publie dans le topic de cette plateforme si `otel_platforms`
@@ -102,8 +104,8 @@ et isole chaque plateforme dans Kafka.
 Chaque VM active, `k3s-01` comprise, exécute un Elastic Agent EDOT
 standalone. Il collecte les logs locaux et les métriques hôte, puis les
 publie en OTLP vers l'Edge déclaré par la VM ; les signaux suivent ensuite
-les topics de la plateforme de la VM jusqu’au Collector backend.
-`otel-backend-01` publie directement dans son Kafka local.
+les topics de la plateforme de la VM jusqu’au Collector backend. Le hub
+`tools-01` n'a pas d'agent EDOT.
 
 ## 4. Configuration et sources IaC
 

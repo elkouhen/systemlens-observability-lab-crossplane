@@ -1,5 +1,5 @@
-# Supervision des back-ends de k3s-01 (remplace les receivers des agents EDOT des anciennes VM
-# supermarket-middleware-01 et otel-backend-01) : PostgreSQL, MongoDB et Kafka métier du supermarché
+# Supervision des back-ends de k3s-01 (reprend les receivers des agents EDOT des VM de back-ends
+# supprimées par ADR-021) : PostgreSQL, MongoDB et Kafka métier du supermarché
 # (plateforme supermarche), Kafka OTel (plateforme elk). Mêmes receivers, donc mêmes data streams
 # (metrics-postgresqlreceiver.otel-supermarche_homologation…) et mêmes dashboards. Les signaux
 # passent par l'Edge comme ceux des autres collecteurs Kubernetes (clé otel-kubernetes-cluster).
