@@ -315,6 +315,42 @@ fidélité : mêmes versions, mêmes images.
   Résultat : `docker rmi mongo:8.0` fait, plus aucune image `mongo` locale.
 - [ ] **F04 Commit initial.** Fait par la session principale une fois les lots 6 et 7 terminés.
 
+## Lot 8 : hub de gestion et trois clusters (décision de l'utilisateur, 11 novembre 2026)
+
+Objectif : « faire un max avec Crossplane ». Choix validés par l'utilisateur : toutes les données
+dans k3s, un cluster de gestion (hub) qui pilote, Elastic sous ECK sur elk-01 (option B).
+
+Point de départ validé (commit 2fe8362) : reconstruction complète en 921 s, 13 Application Argo CD
+Synced/Healthy, 7 contrôles de télémétrie OK.
+
+Architecture cible :
+
+```text
+tools-01     (hub, k3s, 192.168.33.60)   Argo CD, Crossplane et providers, cert-manager, clé age
+k3s-01       (applicatif, k3s)           services Java, PostgreSQL, MongoDB, Kafka métier et OTel,
+                                         collecteur backend OTel, collecteurs OTel
+elk-01       (observabilité, k3s + ECK)  Elasticsearch, Kibana, Fleet Server 9.5.4
+otel-edge-01 (VM, Ansible)               Collecteur Edge, HAProxy
+supprimées : supermarket-middleware-01, otel-backend-01
+```
+
+Contrainte : le Mac a 16 Go. Mesurer la mémoire réelle à chaque étape (`top`, `limactl list`).
+
+- [ ] H0 Mesurer la mémoire utilisée par les 5 VM actuelles (référence).
+- [ ] H1 Hub `tools-01` : VM Lima, k3s, Argo CD, Crossplane, cert-manager, clé age ; k3s-01 et
+  elk-01 enregistrés comme clusters Argo CD ; provider-kubernetes (une ProviderConfig par cluster
+  cible) pour composer des objets dans les clusters cibles.
+- [ ] H2 Opérateurs de données dans k3s-01 (Helm par Argo CD) : CloudNativePG, Strimzi, opérateur
+  MongoDB (images arm64 requises). API Crossplane du hub : PostgreSQLInstance, MongoDBInstance,
+  KafkaCluster ; accès du hub et de l'Edge par NodePort sur 192.168.33.50.
+- [ ] H3 Groupe supermarket : bases et Kafka métier dans k3s-01, supervision par les collecteurs OTel
+  du cluster (receivers postgresql, mongodb, kafkametrics) en gardant les data streams des dashboards.
+- [ ] H4 Kafka OTel et collecteur backend dans k3s-01 ; l'Edge publie par NodePort (SCRAM).
+- [ ] H5 elk-01 en k3s + ECK : API ObservabilityStack (Elasticsearch, Kibana, Fleet Server), mêmes
+  points d'accès 192.168.33.40:9200/5601/8220 ; configuration Terraform/HTTP actuelle conservée.
+- [ ] H6 Suppression de supermarket-middleware-01 et otel-backend-01 (Lima, inventaire, rôles,
+  Makefile, docs, ADR) ; reconstruction complète, 7 contrôles de télémétrie, mesure mémoire.
+
 ## Lot 4 : provider Elastic natif (écarté)
 
 `bigjbiggever/provider-upjet-elasticstack` ne couvre pas le besoin (voir plus haut). Elasticsearch et
